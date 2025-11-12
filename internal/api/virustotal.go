@@ -6,35 +6,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"time"
 )
 
-type VirusTotalResponse struct {
-	Data struct {
-		Attributes struct {
-			LastAnalysisStats struct {
-				Malicious  int `json:"malicious"`
-				Suspicious int `json:"suspicious"`
-				Undetected int `json:"undetected"`
-				Harmless   int `json:"harmless"`
-			} `json:"last analysis stats"`
-			Reputation int `json:"reputation"`
-		} `json: "attributes"`
-	} `json:"data"`
-}
+func CheckDomain(domain string, apiKey string) (*models.Report, error) {
+	fmt.Printf(" send req to vt...\b")
 
-func CheckDomain(domain string) (*models.Report, error) {
-	apiKey := os.Getenv("VIRUSTOTAL_API")
-	if apiKey == "" {
-		return demoCheck(domain), nil
-	}
-
-	url := fmt.Sprintf("https://www.virustotal.com/api/v3/domains/%s", domain)
+	url := fmt.Sprintf("http://www.virustotal.com/api/v3/domains/%s", domain)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("create request failed: %v", err)
+		return nil, fmt.Errorf("request error: %v", err)
 	}
 
 	req.Header.Set("x-apikey", apiKey)
@@ -42,35 +24,45 @@ func CheckDomain(domain string) (*models.Report, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return demoCheck(domain), nil
+		return nil, fmt.Errorf("connection error: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return demoCheck(domain), nil
+		return nil, fmt.Errorf("API error: %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return demoCheck(domain), nil
+		return nil, fmt.Errorf("Request patsing error: %v", err)
 	}
 
-	var result VirusTotalResponse
+	var result struct {
+		Data struct {
+			Attributes struct {
+				LastAanalysisStats struct {
+					Malicious int `json:"malicious"`
+					Harmless  int `json:"harmless"`
+				} `json:"last_analysis_stats"`
+			} `json:"attributes"`
+		} `json:"data"`
+	}
+
 	if err := json.Unmarshal(body, &result); err != nil {
-		return demoCheck(domain), nil
+		return nil, fmt.Errorf("JSON parsing error: %v", err)
 	}
 
-	stats := result.Data.Attributes.LastAnalysisStats
-	totalEngines := stats.Malicious + stats.Suspicious + stats.Harmless + stats.Undetected
+	stats := result.Data.Attributes.LastAanalysisStats
+	total := stats.Malicious + stats.Harmless
 
 	var riskScore int
-	if totalEngines > 0 {
-		riskScore = (stats.Malicious * 100) / totalEngines
-	} else {
-		riskScore = 0
+	if total > 0 {
+		riskScore = (stats.Malicious * 100) / total
 	}
 
-	isSafe := riskScore < 5
+	isSafe := riskScore < 10
+
+	fmt.Printf("Got answer: %d antiviruses find menaces\n", stats.Malicious)
 
 	return &models.Report{
 		Domain:    domain,
@@ -78,27 +70,4 @@ func CheckDomain(domain string) (*models.Report, error) {
 		RiskScore: riskScore,
 		Timestamp: time.Now(),
 	}, nil
-}
-
-func demoCheck(domain string) *models.Report {
-	safeDomains := map[string]bool{
-		"google.com":    true,
-		"github.com":    true,
-		"example.com":   true,
-		"microsoft.com": true,
-	}
-
-	isSafe := safeDomains[domain]
-	riskScore := 0
-	if !isSafe {
-		riskScore = 30
-	}
-
-	return &models.Report{
-		Domain:    domain,
-		Safe:      isSafe,
-		RiskScore: riskScore,
-		Timestamp: time.Now(),
-	}
-
 }

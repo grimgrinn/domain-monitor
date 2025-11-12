@@ -1,95 +1,57 @@
-/*
-package main
-
-import (
-
-	"domain-monitor/internal/api"
-	"fmt"
-	"os"
-
-)
-
-	func main() {
-		if len(os.Args) < 2 {
-			fmt.Println("usage: domain-monitor <domain1> <domain2> ,,,")
-			os.Exit(1)
-		}
-
-		domains := os.Args[1:]
-
-		fmt.Println("checking domains...")
-		for _, domain := range domains {
-			result, err := api.CheckDomain(domain)
-			if err != nil {
-				fmt.Printf("error checking checking %s: %v\n", domain, err)
-				continue
-			}
-
-			status := "SAFE"
-			if !result.Safe {
-				status = "UNSAFE"
-			}
-
-			fmt.Printf("Domain: %s\nStatus: %s\nRisk: %d%%\n\n", result.Domain, status, result.RiskScore)
-		}
-
-}
-*/
 package main
 
 import (
 	"domain-monitor/internal/api"
+	"domain-monitor/internal/config"
 	"fmt"
 	"os"
-	"time"
 )
 
 func main() {
+	fmt.Println("=== Domain Monitor ===")
+	fmt.Println("Загружаем настройки...")
+
+	// Загружаем конфиг
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		fmt.Printf("Ошибка загрузки config.yaml: %v\n", err)
+		fmt.Println("Создайте файл config.yaml с API ключами")
+		return
+	}
+
+	fmt.Println("Настройки загружены!")
+	fmt.Println()
+
+	// Проверяем домены из командной строки
 	if len(os.Args) < 2 {
-		fmt.Println("🔍 Domain Monitor - VirusTotal API Checker")
-		fmt.Println("Usage: domain-monitor <domain1> <domain2> ...")
-		fmt.Println("Example: domain-monitor google.com github.com badsite.com")
-		fmt.Println("\nSet VIRUSTOTAL_API_KEY environment variable for real checks")
-		os.Exit(1)
+		fmt.Println("Использование:")
+		fmt.Println("  domain-monitor <domain1> <domain2> ...")
+		fmt.Println()
+		fmt.Println("Пример:")
+		fmt.Println("  domain-monitor google.com github.com")
+		return
 	}
 
 	domains := os.Args[1:]
-
-	fmt.Printf("🔍 Checking %d domain(s)...\n", len(domains))
-	fmt.Println("⏳ Please wait...")
-	fmt.Println()
+	fmt.Printf("Проверяем %d домен(ов):\n", len(domains))
 
 	for i, domain := range domains {
-		fmt.Printf("%d. Checking: %s\n", i+1, domain)
+		fmt.Printf("\n%d. Домен: %s\n", i+1, domain)
 
-		result, err := api.CheckDomain(domain)
+		// Проверяем домен через VirusTotal
+		result, err := api.CheckDomain(domain, cfg.VirusTotalAPIKey)
 		if err != nil {
-			fmt.Printf("   ❌ Error: %v\n\n", err)
+			fmt.Printf("   Ошибка проверки: %v\n", err)
 			continue
 		}
 
-		status := "🟢 SAFE"
-		if !result.Safe {
-			status = "🔴 UNSAFE"
-		}
-
-		riskLevel := "Low"
-		if result.RiskScore > 50 {
-			riskLevel = "HIGH"
-		} else if result.RiskScore > 20 {
-			riskLevel = "Medium"
-		}
-
-		fmt.Printf("   📊 Status: %s\n", status)
-		fmt.Printf("   📈 Risk Score: %d%% (%s)\n", result.RiskScore, riskLevel)
-		fmt.Printf("   ⏰ Checked: %s\n", result.Timestamp.Format("15:04:05"))
-		fmt.Println()
-
-		// Небольшая пауза между запросами чтобы не спамить API
-		if i < len(domains)-1 {
-			time.Sleep(1 * time.Second)
+		// Показываем результат
+		if result.Safe {
+			fmt.Printf("   ✅ БЕЗОПАСНЫЙ (риск: %d%%)\n", result.RiskScore)
+		} else {
+			fmt.Printf("   ❌ ОПАСНЫЙ (риск: %d%%)\n", result.RiskScore)
 		}
 	}
 
-	fmt.Println("✅ Check completed!")
+	fmt.Println("\n=== Проверка завершена ===")
 }
