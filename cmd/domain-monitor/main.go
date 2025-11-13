@@ -31,7 +31,7 @@ func main() {
 	// domains := os.Args[1:]
 	// fmt.Printf("Проверяем %d домен(ов):\n", len(domains))
 
-	kclient := keitaro.New(cfg.KeitaroAPIKey, cfg.KeitaroURL)
+	kclient := keitaro.New(cfg.KeytaroAPIKey, cfg.KeytaroURL)
 	domains, err := kclient.GetDomains()
 	if err != nil {
 		fmt.Printf("Keitaro error: %v\n", err)
@@ -44,7 +44,7 @@ func main() {
 		fmt.Printf("\n%d. Домен: %s\n", i+1, domain)
 
 		// Проверяем домен через VirusTotal
-		result, err := api.CheckDomain(domain, cfg.VirusTotalAPIKey)
+		result, err := api.CheckDomain(domain.Name, cfg.VirusTotalAPIKey)
 		if err != nil {
 			fmt.Printf("   Ошибка проверки: %v\n", err)
 			continue

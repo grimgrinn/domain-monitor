@@ -19,7 +19,7 @@ type Domain struct {
 
 func New(apiKey, baseURL string) *Client {
 	return &Client{
-		APIKey:  apiKey,
+		ApiKey:  apiKey,
 		BaseURL: baseURL,
 	}
 }
@@ -32,7 +32,7 @@ func (c *Client) GetDomains() ([]Domain, error) {
 		return nil, err
 	}
 
-	req.Header.Set("Api-Key", c.APIKey)
+	req.Header.Set("Api-Key", c.ApiKey)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -41,7 +41,7 @@ func (c *Client) GetDomains() ([]Domain, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCOde != 200 {
+	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
@@ -51,7 +51,7 @@ func (c *Client) GetDomains() ([]Domain, error) {
 	}
 
 	var domains []Domain
-	if err := json.Unmarshal(bodym, &domains); err != nil {
+	if err := json.Unmarshal(body, &domains); err != nil {
 		return nil, err
 	}
 
