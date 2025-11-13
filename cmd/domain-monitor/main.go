@@ -3,8 +3,8 @@ package main
 import (
 	"domain-monitor/internal/api"
 	"domain-monitor/internal/config"
+	"domain-monitor/internal/keitaro"
 	"fmt"
-	"os"
 )
 
 func main() {
@@ -14,26 +14,31 @@ func main() {
 	// Загружаем конфиг
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		fmt.Printf("Ошибка загрузки config.yaml: %v\n", err)
-		fmt.Println("Создайте файл config.yaml с API ключами")
+		fmt.Printf("Ошибка загрузки conf4.9ig.yaml: %v\n", err)
 		return
 	}
 
-	fmt.Println("Настройки загружены!")
-	fmt.Println()
+	// // Проверяем домены из командной строки
+	// if len(os.Args) < 2 {
+	// 	fmt.Println("Использование:")
+	// 	fmt.Println("  domain-monitor <domain1> <domain2> ...")
+	// 	fmt.Println()
+	// 	fmt.Println("Пример:")
+	// 	fmt.Println("  domain-monitor google.com github.com")
+	// 	return
+	// }
 
-	// Проверяем домены из командной строки
-	if len(os.Args) < 2 {
-		fmt.Println("Использование:")
-		fmt.Println("  domain-monitor <domain1> <domain2> ...")
-		fmt.Println()
-		fmt.Println("Пример:")
-		fmt.Println("  domain-monitor google.com github.com")
+	// domains := os.Args[1:]
+	// fmt.Printf("Проверяем %d домен(ов):\n", len(domains))
+
+	kclient := keitaro.New(cfg.KeitaroAPIKey, cfg.KeitaroURL)
+	domains, err := kclient.GetDomains()
+	if err != nil {
+		fmt.Printf("Keitaro error: %v\n", err)
 		return
 	}
 
-	domains := os.Args[1:]
-	fmt.Printf("Проверяем %d домен(ов):\n", len(domains))
+	fmt.Printf("Received %d domains from Keitaro \n\n", len(domains))
 
 	for i, domain := range domains {
 		fmt.Printf("\n%d. Домен: %s\n", i+1, domain)

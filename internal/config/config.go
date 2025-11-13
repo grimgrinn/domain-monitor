@@ -9,6 +9,7 @@ import (
 type Config struct {
 	VirusTotalAPIKey string `yaml:"virustotal_api_key"`
 	KeytaroAPIKey    string `yaml:"keytaro_api_key"`
+	KeytaroURL       string `yaml:"keitaro_url"`
 }
 
 func LoadConfig() (*Config, error) {
