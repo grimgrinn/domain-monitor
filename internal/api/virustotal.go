@@ -40,9 +40,12 @@ func CheckDomain(domain string, apiKey string) (*models.Report, error) {
 	var result struct {
 		Data struct {
 			Attributes struct {
-				LastAanalysisStats struct {
-					Malicious int `json:"malicious"`
-					Harmless  int `json:"harmless"`
+				LastAnalysisStats struct {
+					Malicious  int `json:"malicious"`
+					Suspicious int `json:"suspicious"` // ← ДОБАВИТЬ
+					Undetected int `json:"undetected"` // ← ДОБАВИТЬ
+					Harmless   int `json:"harmless"`
+					Timeout    int `json:"timeout"` // ← ДОБАВИТЬ
 				} `json:"last_analysis_stats"`
 			} `json:"attributes"`
 		} `json:"data"`
@@ -52,15 +55,15 @@ func CheckDomain(domain string, apiKey string) (*models.Report, error) {
 		return nil, fmt.Errorf("JSON parsing error: %v", err)
 	}
 
-	stats := result.Data.Attributes.LastAanalysisStats
-	total := stats.Malicious + stats.Harmless
+	stats := result.Data.Attributes.LastAnalysisStats
+	total := stats.Malicious + stats.Suspicious + stats.Harmless //+ stats.Undetected + stats.Timeout
 
 	var riskScore int
 	if total > 0 {
-		riskScore = (stats.Malicious * 100) / total
+		riskScore = ((stats.Malicious * 100) + (stats.Suspicious * 50)) / total
 	}
 
-	isSafe := riskScore < 10
+	isSafe := riskScore < 5
 
 	fmt.Printf("Got answer: %d antiviruses find menaces\n", stats.Malicious)
 
