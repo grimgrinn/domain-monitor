@@ -5,6 +5,8 @@ import (
 	"domain-monitor/internal/config"
 	"domain-monitor/internal/keitaro"
 	"fmt"
+	"os"
+	"time"
 )
 
 func main() {
@@ -18,45 +20,49 @@ func main() {
 		return
 	}
 
-	// // Проверяем домены из командной строки
-	// if len(os.Args) < 2 {
-	// 	fmt.Println("Использование:")
-	// 	fmt.Println("  domain-monitor <domain1> <domain2> ...")
-	// 	fmt.Println()
-	// 	fmt.Println("Пример:")
-	// 	fmt.Println("  domain-monitor google.com github.com")
-	// 	return
-	// }
-
-	// domains := os.Args[1:]
-	// fmt.Printf("Проверяем %d домен(ов):\n", len(domains))
-
 	kclient := keitaro.New(cfg.KeytaroAPIKey, cfg.KeytaroURL)
-	domains, err := kclient.GetDomains()
-	if err != nil {
-		fmt.Printf("Keitaro error: %v\n", err)
-		return
-	}
 
-	fmt.Printf("Received %d domains from Keitaro \n\n", len(domains))
+	var domains []keitaro.Domain
+	if len(os.Args) > 1 {
+		groupName := os.Args[1]
+		domains, err = kclient.GetDomainsByGroup(groupName)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		fmt.Printf("cheching group '%s' (%d domains)\n\n", groupName, len(domains))
+	} else {
+		domains, err = kclient.GetActiveDomains()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+
+		if len(domains) > 10 {
+			domains = domains[:10]
+			fmt.Printf("too many domains check first 10 \n\n")
+		} else {
+			fmt.Printf("checking %d active domians\n\n", len(domains))
+		}
+	}
 
 	for i, domain := range domains {
-		fmt.Printf("\n%d. Домен: %s\n", i+1, domain)
+		fmt.Printf("%d, %s (group: %s)\n", i+1, domain.Name, domain.Group)
 
-		// Проверяем домен через VirusTotal
 		result, err := api.CheckDomain(domain.Name, cfg.VirusTotalAPIKey)
 		if err != nil {
-			fmt.Printf("   Ошибка проверки: %v\n", err)
-			continue
+			fmt.Printf("Error: %v\n", err)
+		} else if result.Safe {
+			fmt.Printf("Safe (%d%% risk)\n", result.RiskScore)
+		} else {
+			fmt.Printf("Dangerous (%d%% risk)\n", result.RiskScore)
 		}
 
-		// Показываем результат
-		if result.Safe {
-			fmt.Printf("   ✅ БЕЗОПАСНЫЙ (риск: %d%%)\n", result.RiskScore)
-		} else {
-			fmt.Printf("   ❌ ОПАСНЫЙ (риск: %d%%)\n", result.RiskScore)
+		if i < len(domains)-1 {
+			fmt.Printf("wait for 2 seconds...\n\n")
+			time.Sleep(2 * time.Second)
 		}
 	}
 
-	fmt.Println("\n=== Проверка завершена ===")
+	fmt.Printf("\n %d domains was checked\n", len(domains))
 }

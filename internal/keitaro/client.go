@@ -13,8 +13,11 @@ type Client struct {
 }
 
 type Domain struct {
-	ID   int    `json: "id"`
-	Name string `json:"name"`
+	ID      int    `json: "id"`
+	Name    string `json:"name"`
+	Group   string `json:"group"`
+	State   string `json:"state"`
+	GroupID int    `json:"group_id"`
 }
 
 func New(apiKey, baseURL string) *Client {
@@ -56,4 +59,49 @@ func (c *Client) GetDomains() ([]Domain, error) {
 	}
 
 	return domains, nil
+}
+
+func (c *Client) GetActiveDomains() ([]Domain, error) {
+	domains, err := c.GetDomains()
+	if err != nil {
+		return nil, err
+	}
+
+	var active []Domain
+	for _, domain := range domains {
+		if domain.State == "active" {
+			active = append(active, domain)
+		}
+	}
+
+	return active, nil
+}
+
+func (c *Client) GetDomainsByGroup(groupName string) ([]Domain, error) {
+	domains, err := c.GetDomains()
+	if err != nil {
+		return nil, err
+	}
+
+	var filtered []Domain
+	for _, domain := range domains {
+		if domain.Group == groupName {
+			filtered = append(filtered, domain)
+		}
+	}
+
+	return filtered, nil
+}
+
+func (c *Client) GetDomainsLimit(limit int) ([]Domain, error) {
+	domains, err := c.GetDomains()
+	if err != nil {
+		return nil, err
+	}
+
+	if limit > len(domains) {
+		limit = len(domains)
+	}
+
+	return domains[:limit], nil
 }
