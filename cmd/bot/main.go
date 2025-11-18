@@ -4,6 +4,8 @@ import (
 	"domain-monitor/internal/api"
 	"domain-monitor/internal/config"
 	"domain-monitor/internal/keitaro"
+	"domain-monitor/internal/models"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -55,6 +57,7 @@ func handleCommand(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.
 		msg := tgbotapi.NewMessage(message.Chat.ID,
 			"Domain Monitor Bot \n\n"+
 				"Commands: \n"+
+				"/detailed <domain> - detailed check domain"+
 				"/rawcheck <domain> - raw check domain\n"+
 				"/check <domain> - check domain\n"+
 				"/list - list domains from Keitaro\n"+
@@ -65,8 +68,12 @@ func handleCommand(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.
 	case "help":
 		sendHelp(bot, message.Chat.ID)
 
+	case "detailed":
+		handleDetaledCheck(bot, message, cfg)
+
 	case "rawcheck":
 		handleRawCheck(bot, message, cfg)
+
 	case "check":
 		handleChecKDomain(bot, message, cfg)
 
@@ -231,6 +238,86 @@ func handleCheckGroup(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *conf
 	}
 }
 
+func handleDetaledCheck(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.Config) {
+	domain := strings.TrimSpace(message.CommandArguments())
+	if domain == "" {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Usage: /detailed example.com")
+		bot.Send(msg)
+		return
+	}
+
+	msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Detailed check for %s...", domain))
+	bot.Send(msg)
+
+	result, err := api.CheckDomainRaw(domain, cfg.VirusTotalAPIKey)
+	if err != nil {
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error: %v", err))
+		bot.Send(msg)
+		return
+	}
+
+	response := formatDetailedVTForBot(result)
+	msg = tgbotapi.NewMessage(message.Chat.ID, response)
+	bot.Send(msg)
+}
+
+func formatDetailedVTForBot(report *models.RawReport) string {
+	var data map[string]interface{}
+	json.Unmarshal([]byte(report.RawData), &data)
+
+	attributes := data["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+
+	var response strings.Builder
+	response.WriteString(fmt.Sprintf("VT: %s\n", report.Domain))
+	response.WriteString(fmt.Sprintf("Time: %s\n\n", report.Timestamp.Format("15:04 02.01")))
+
+	if stats, exists := attributes["last_analysis_stats"].(map[string]interface{}); exists {
+		response.WriteString("Results:\n")
+		response.WriteString(fmt.Sprintf("Harmless: %d\n", int(stats["harmless"].(float64))))
+		response.WriteString(fmt.Sprintf("Suspicious: %d\n", int(stats["suspicious"].(float64))))
+		response.WriteString(fmt.Sprintf("Malicious: %d\n", int(stats["malicious"].(float64))))
+		response.WriteString(fmt.Sprintf("Undetected: %d\n\n", int(stats["undetected"].(float64))))
+	}
+
+	if lastAnalysis, exists := attributes["last_analysis_results"].(map[string]interface{}); exists {
+		maliciousEngines := []string{}
+		suspiciousEngines := []string{}
+
+		for engine, result := range lastAnalysis {
+			resultMap := result.(map[string]interface{})
+			category := resultMap["category"].(string)
+
+			if category == "malicious" {
+				maliciousEngines = append(maliciousEngines, engine)
+			} else if category == "suspicious" {
+				suspiciousEngines = append(suspiciousEngines, engine)
+			}
+		}
+
+		if len(maliciousEngines) > 0 {
+			response.WriteString(fmt.Sprintf("Malicious (%d):\n", len(maliciousEngines)))
+			for _, engine := range maliciousEngines {
+				response.WriteString(fmt.Sprintf("- %s\n", engine))
+			}
+			response.WriteString("\n")
+		}
+
+		if len(suspiciousEngines) > 0 {
+			response.WriteString(fmt.Sprintf("Suspicious (%d):\n", len(suspiciousEngines)))
+			for _, engine := range suspiciousEngines {
+				response.WriteString(fmt.Sprintf("- %s\n", engine))
+			}
+			response.WriteString("\n")
+		}
+	}
+
+	if reputation, exists := attributes["reputation"]; exists {
+		response.WriteString(fmt.Sprintf("Reputation: %d\n", int(reputation.(float64))))
+	}
+
+	return response.String()
+}
+
 func sendHelp(bot *tgbotapi.BotAPI, chatID int64) {
 	helpText := `Domain Monitor Bot
 	
@@ -240,6 +327,7 @@ func sendHelp(bot *tgbotapi.BotAPI, chatID int64) {
 	/help - show help
 	
 	Check domains:
+	/detailed google.com - detailed check domain
 	/rawcheck google.com - rawcheck domain
 	/check google.com - check domain
 	/list - list domains from Keitaro

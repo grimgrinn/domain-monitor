@@ -68,18 +68,6 @@ func CheckDomainRaw(domain string, apiKey string) (*models.RawReport, error) {
 }
 
 func CheckDomain(domain string, apiKey string) (*models.Report, error) {
-	// rawReport, err := CheckDomainRaw(domain, apiKey)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// return &models.Report{
-	// 	Domain: domain,
-	// 	Safe: true,
-	// 	RiskScore: 0,
-	// 	Timestamp: rawReport.Timestamp,
-	// }, nil
-
 	fmt.Printf(" send req to vt...\b")
 
 	url := fmt.Sprintf("http://www.virustotal.com/api/v3/domains/%s", domain)
