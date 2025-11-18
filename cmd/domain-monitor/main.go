@@ -16,7 +16,7 @@ func main() {
 	// Загружаем конфиг
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		fmt.Printf("Ошибка загрузки conf4.9ig.yaml: %v\n", err)
+		fmt.Printf("Ошибка загрузки config.yaml: %v\n", err)
 		return
 	}
 

@@ -8,3 +8,9 @@ type Report struct {
 	RiskScore int       `json:"risk_store"`
 	Timestamp time.Time `json:"timestamp"`
 }
+
+type RawReport struct {
+	Domain    string    `json:"domain:`
+	RawData   string    `json:"raw_data:`
+	Timestamp time.Time `json:"timestamp"`
+}

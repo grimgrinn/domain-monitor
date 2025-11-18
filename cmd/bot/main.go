@@ -55,6 +55,7 @@ func handleCommand(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.
 		msg := tgbotapi.NewMessage(message.Chat.ID,
 			"Domain Monitor Bot \n\n"+
 				"Commands: \n"+
+				"/rawcheck <domain> - raw check domain\n"+
 				"/check <domain> - check domain\n"+
 				"/list - list domains from Keitaro\n"+
 				"/group <name> - check by group\n"+
@@ -64,6 +65,8 @@ func handleCommand(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.
 	case "help":
 		sendHelp(bot, message.Chat.ID)
 
+	case "rawcheck":
+		handleRawCheck(bot, message, cfg)
 	case "check":
 		handleChecKDomain(bot, message, cfg)
 
@@ -147,6 +150,36 @@ func handleListDomains(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *con
 	bot.Send(msg)
 }
 
+func handleRawCheck(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.Config) {
+	domain := strings.TrimSpace(message.CommandArguments())
+	if domain == "" {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Usage: /rawcheck example.com")
+		bot.Send(msg)
+		return
+	}
+
+	msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Getting raw data for %s...", domain))
+	bot.Send(msg)
+
+	result, err := api.CheckDomainRaw(domain, cfg.VirusTotalAPIKey)
+	if err != nil {
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error: %v", err))
+		bot.Send(msg)
+		return
+	}
+
+	rawData := result.RawData
+	if len(rawData) > 4000 {
+		rawData = rawData[:4000] + "\n... (truncated)"
+	}
+
+	response := fmt.Sprintf("Raw VT dat for %s:\n\n```json\n%s\n```", domain, rawData)
+
+	msg = tgbotapi.NewMessage(message.Chat.ID, response)
+	msg.ParseMode = "Markdown"
+	bot.Send(msg)
+}
+
 func handleCheckGroup(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.Config) {
 	groupName := strings.TrimSpace(message.CommandArguments())
 	if groupName == "" {
@@ -207,6 +240,7 @@ func sendHelp(bot *tgbotapi.BotAPI, chatID int64) {
 	/help - show help
 	
 	Check domains:
+	/rawcheck google.com - rawcheck domain
 	/check google.com - check domain
 	/list - list domains from Keitaro
 	/group killa - check domains by group
