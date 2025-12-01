@@ -5,13 +5,13 @@ import "time"
 type Report struct {
 	Domain    string    `json:"domain"`
 	Safe      bool      `json:"safe"`
-	RiskScore int       `json:"risk_store"`
+	RiskScore int       `json:"risk_score"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
 type RawReport struct {
-	Domain    string    `json:"domain:`
-	RawData   string    `json:"raw_data:`
+	Domain    string    `json:"domain"`
+	RawData   string    `json:"raw_data"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
@@ -29,7 +29,7 @@ type VTDetailReport struct {
 
 	Results struct {
 		Malicious  []string `json:"malicious"`
-		Suspicious []string `json:"suspicioius"`
+		Suspicious []string `json:"suspicious"`
 		Harmless   []string `json:"harmless"`
 		Undetected []string `json:"undetected"`
 	} `json:"results"`
