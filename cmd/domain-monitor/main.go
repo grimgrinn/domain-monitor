@@ -49,7 +49,7 @@ func main() {
 	for i, domain := range domains {
 		fmt.Printf("%d, %s (group: %s)\n", i+1, domain.Name, domain.Group)
 
-		result, err := api.CheckDomain(domain.Name, cfg.VirusTotalAPIKey)
+		result, err := api.CheckDomainSimple(domain.Name, cfg.VirusTotalAPIKey)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 		} else if result.Safe {

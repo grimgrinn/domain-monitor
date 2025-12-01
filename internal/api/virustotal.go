@@ -67,7 +67,7 @@ func CheckDomainRaw(domain string, apiKey string) (*models.RawReport, error) {
 	}, nil
 }
 
-func CheckDomain(domain string, apiKey string) (*models.Report, error) {
+func CheckDomain(domain string, apiKey string) (*models.VTDetailReport, error) {
 	fmt.Printf(" send req to vt...\b")
 
 	url := fmt.Sprintf("http://www.virustotal.com/api/v3/domains/%s", domain)
@@ -95,40 +95,81 @@ func CheckDomain(domain string, apiKey string) (*models.Report, error) {
 		return nil, fmt.Errorf("Request patsing error: %v", err)
 	}
 
-	var result struct {
-		Data struct {
-			Attributes struct {
-				LastAnalysisStats struct {
-					Malicious  int `json:"malicious"`
-					Suspicious int `json:"suspicious"` // ← ДОБАВИТЬ
-					Undetected int `json:"undetected"` // ← ДОБАВИТЬ
-					Harmless   int `json:"harmless"`
-					Timeout    int `json:"timeout"` // ← ДОБАВИТЬ
-				} `json:"last_analysis_stats"`
-			} `json:"attributes"`
-		} `json:"data"`
-	}
+	return parseVTResponse(domain, body)
+}
 
-	if err := json.Unmarshal(body, &result); err != nil {
+func parseVTResponse(domain string, body []byte) (*models.VTDetailReport, error) {
+	var data map[string]interface{}
+	if err := json.Unmarshal(body, &data); err != nil {
 		return nil, fmt.Errorf("JSON parsing error: %v", err)
 	}
 
-	stats := result.Data.Attributes.LastAnalysisStats
-	total := stats.Malicious + stats.Suspicious + stats.Harmless //+ stats.Undetected + stats.Timeout
+	attributes := data["data"].(map[string]interface{})["attributes"].(map[string]interface{})
 
-	var riskScore int
-	if total > 0 {
-		riskScore = ((stats.Malicious * 100) + (stats.Suspicious * 50)) / total
+	report := &models.VTDetailReport{
+		Domain:    domain,
+		Timestamp: time.Now(),
 	}
 
-	isSafe := riskScore < 5
+	if stats, exists := attributes["last_analysis_stats"].(map[string]interface{}); exists {
+		report.Stats.Harmless = int(stats["harmless"].(float64))
+		report.Stats.Suspicious = int(stats["suspicious"].(float64))
+		report.Stats.Malicious = int(stats["malicious"].(float64))
+		report.Stats.Undetected = int(stats["undetected"].(float64))
+		report.Stats.Total = report.Stats.Harmless + report.Stats.Suspicious + report.Stats.Malicious + report.Stats.Undetected
+	}
 
-	fmt.Printf("Got answer: %d antiviruses find menaces\n", stats.Malicious)
+	if lastAnalysis, exists := attributes["last_analysis_results"].(map[string]interface{}); exists {
+		report.Results.Malicious = []string{}
+		report.Results.Suspicious = []string{}
+		report.Results.Harmless = []string{}
+		report.Results.Undetected = []string{}
+
+		for engine, results := range lastAnalysis {
+			resultMap := results.(map[string]interface{})
+			category := resultMap["category"].(string)
+
+			switch category {
+			case "malicious":
+				report.Results.Malicious = append(report.Results.Malicious, engine)
+			case "suspicious":
+				report.Results.Suspicious = append(report.Results.Suspicious, engine)
+			case "harmless":
+				report.Results.Harmless = append(report.Results.Harmless, engine)
+			case "undetected":
+				report.Results.Undetected = append(report.Results.Undetected, engine)
+			}
+		}
+	}
+
+	if reputation, exists := attributes["reputation"]; exists {
+		report.Reputation = int(reputation.(float64))
+	}
+
+	if categories, exists := attributes["categories"]; exists {
+		report.Categories = make(map[string]string)
+		for engine, category := range categories.(map[string]interface{}) {
+			report.Categories[engine] = category.(string)
+		}
+	}
+
+	if lastAnalysis, exists := attributes["last_analysis_date"]; exists {
+		report.LastAnalysis = int64(lastAnalysis.(float64))
+	}
+
+	return report, nil
+}
+
+func CheckDomainSimple(domain string, apiKey string) (*models.Report, error) {
+	detailed, err := CheckDomain(domain, apiKey)
+	if err != nil {
+		return nil, err
+	}
 
 	return &models.Report{
 		Domain:    domain,
-		Safe:      isSafe,
-		RiskScore: riskScore,
-		Timestamp: time.Now(),
+		Safe:      detailed.Stats.Malicious == 0 && detailed.Stats.Suspicious == 0,
+		RiskScore: (detailed.Stats.Malicious * 100) / detailed.Stats.Total,
+		Timestamp: detailed.Timestamp,
 	}, nil
 }

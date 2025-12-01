@@ -3,9 +3,9 @@ package main
 import (
 	"domain-monitor/internal/api"
 	"domain-monitor/internal/config"
+	"domain-monitor/internal/googlesafebrowsing"
 	"domain-monitor/internal/keitaro"
 	"domain-monitor/internal/models"
-	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -57,9 +57,9 @@ func handleCommand(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.
 		msg := tgbotapi.NewMessage(message.Chat.ID,
 			"Domain Monitor Bot \n\n"+
 				"Commands: \n"+
-				"/detailed <domain> - detailed check domain"+
 				"/rawcheck <domain> - raw check domain\n"+
 				"/check <domain> - check domain\n"+
+				"/gsb <domain> - check domain with google safe browsing\n"+
 				"/list - list domains from Keitaro\n"+
 				"/group <name> - check by group\n"+
 				"/help - help")
@@ -68,14 +68,14 @@ func handleCommand(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.
 	case "help":
 		sendHelp(bot, message.Chat.ID)
 
-	case "detailed":
-		handleDetaledCheck(bot, message, cfg)
-
 	case "rawcheck":
 		handleRawCheck(bot, message, cfg)
 
 	case "check":
 		handleChecKDomain(bot, message, cfg)
+
+	case "gsb":
+		handleGoogleCheck(bot, message, cfg)
 
 	case "list":
 		handleListDomains(bot, message, cfg)
@@ -108,13 +108,7 @@ func handleChecKDomain(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *con
 		return
 	}
 
-	status := "SAFE"
-	if !result.Safe {
-		status = "UNSAFE"
-	}
-
-	response := fmt.Sprintf("Domain: %s\nStatus: %s\nRisk: %d%%", result.Domain, status, result.RiskScore)
-
+	response := formatDetailedVT(result)
 	msg = tgbotapi.NewMessage(message.Chat.ID, response)
 	bot.Send(msg)
 }
@@ -223,12 +217,7 @@ func handleCheckGroup(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *conf
 			continue
 		}
 
-		status := "SAFE"
-		if !result.Safe {
-			status = "UNSAFE"
-		}
-
-		response := fmt.Sprintf("Domain: %s\nStatus: %s\nRisk: %d%%", result.Domain, status, result.RiskScore)
+		response := formatDetailedVT(result)
 		msg = tgbotapi.NewMessage(message.Chat.ID, response)
 		bot.Send(msg)
 
@@ -238,81 +227,65 @@ func handleCheckGroup(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *conf
 	}
 }
 
-func handleDetaledCheck(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.Config) {
+func handleGoogleCheck(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.Config) {
 	domain := strings.TrimSpace(message.CommandArguments())
 	if domain == "" {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "Usage: /detailed example.com")
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Usage: /gsb example.com")
 		bot.Send(msg)
 		return
 	}
 
-	msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Detailed check for %s...", domain))
+	msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("checking %s via Google Safe Browsing...", domain))
 	bot.Send(msg)
 
-	result, err := api.CheckDomainRaw(domain, cfg.VirusTotalAPIKey)
+	client := googlesafebrowsing.New(cfg.GoogleSafeBrowsingAPIKey)
+	isDangerous, threats, err := client.CheckDomain(domain)
+
 	if err != nil {
 		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error: %v", err))
 		bot.Send(msg)
 		return
 	}
 
-	response := formatDetailedVTForBot(result)
-	msg = tgbotapi.NewMessage(message.Chat.ID, response)
-	bot.Send(msg)
+	if isDangerous {
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("%s is DANGEROUS\nThreats: %v", domain, threats))
+		bot.Send(msg)
+	} else {
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("%s is SAFE (Google Safe Browsing)", domain))
+		bot.Send(msg)
+	}
 }
 
-func formatDetailedVTForBot(report *models.RawReport) string {
-	var data map[string]interface{}
-	json.Unmarshal([]byte(report.RawData), &data)
-
-	attributes := data["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+func formatDetailedVT(report *models.VTDetailReport) string {
 
 	var response strings.Builder
 	response.WriteString(fmt.Sprintf("VT: %s\n", report.Domain))
 	response.WriteString(fmt.Sprintf("Time: %s\n\n", report.Timestamp.Format("15:04 02.01")))
 
-	if stats, exists := attributes["last_analysis_stats"].(map[string]interface{}); exists {
-		response.WriteString("Results:\n")
-		response.WriteString(fmt.Sprintf("Harmless: %d\n", int(stats["harmless"].(float64))))
-		response.WriteString(fmt.Sprintf("Suspicious: %d\n", int(stats["suspicious"].(float64))))
-		response.WriteString(fmt.Sprintf("Malicious: %d\n", int(stats["malicious"].(float64))))
-		response.WriteString(fmt.Sprintf("Undetected: %d\n\n", int(stats["undetected"].(float64))))
+	response.WriteString("Results:\n")
+	response.WriteString(fmt.Sprintf("Harmless: %d\n", report.Stats.Harmless))
+	response.WriteString(fmt.Sprintf("Suspicious: %d\n", report.Stats.Suspicious))
+	response.WriteString(fmt.Sprintf("Malicious: %d\n", report.Stats.Malicious))
+	response.WriteString(fmt.Sprintf("Undetected: %d\n\n", report.Stats.Undetected))
+
+	if len(report.Results.Malicious) > 0 {
+		response.WriteString(fmt.Sprintf("Malicioius engines (%d):\n", len(report.Results.Malicious)))
+		for _, engine := range report.Results.Malicious {
+			response.WriteString(fmt.Sprintf("- %s\n", engine))
+		}
+		response.WriteString("\n")
 	}
 
-	if lastAnalysis, exists := attributes["last_analysis_results"].(map[string]interface{}); exists {
-		maliciousEngines := []string{}
-		suspiciousEngines := []string{}
-
-		for engine, result := range lastAnalysis {
-			resultMap := result.(map[string]interface{})
-			category := resultMap["category"].(string)
-
-			if category == "malicious" {
-				maliciousEngines = append(maliciousEngines, engine)
-			} else if category == "suspicious" {
-				suspiciousEngines = append(suspiciousEngines, engine)
-			}
+	if len(report.Results.Suspicious) > 0 {
+		response.WriteString(fmt.Sprintf("Suspicious engines (%d):\n", len(report.Results.Suspicious)))
+		for _, engine := range report.Results.Suspicious {
+			response.WriteString(fmt.Sprintf("- %s\n", engine))
 		}
-
-		if len(maliciousEngines) > 0 {
-			response.WriteString(fmt.Sprintf("Malicious (%d):\n", len(maliciousEngines)))
-			for _, engine := range maliciousEngines {
-				response.WriteString(fmt.Sprintf("- %s\n", engine))
-			}
-			response.WriteString("\n")
-		}
-
-		if len(suspiciousEngines) > 0 {
-			response.WriteString(fmt.Sprintf("Suspicious (%d):\n", len(suspiciousEngines)))
-			for _, engine := range suspiciousEngines {
-				response.WriteString(fmt.Sprintf("- %s\n", engine))
-			}
-			response.WriteString("\n")
-		}
+		response.WriteString("\n")
 	}
 
-	if reputation, exists := attributes["reputation"]; exists {
-		response.WriteString(fmt.Sprintf("Reputation: %d\n", int(reputation.(float64))))
+	if report.Reputation != 0 {
+		response.WriteString(fmt.Sprintf("Reputation: %d\n", report.Reputation))
 	}
 
 	return response.String()
@@ -327,9 +300,9 @@ func sendHelp(bot *tgbotapi.BotAPI, chatID int64) {
 	/help - show help
 	
 	Check domains:
-	/detailed google.com - detailed check domain
 	/rawcheck google.com - rawcheck domain
 	/check google.com - check domain
+	/gsb example.com - check domain with google safe browsing
 	/list - list domains from Keitaro
 	/group killa - check domains by group
 	

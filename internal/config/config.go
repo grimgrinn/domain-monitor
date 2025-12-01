@@ -7,10 +7,11 @@ import (
 )
 
 type Config struct {
-	VirusTotalAPIKey string `yaml:"virustotal_api_key"`
-	KeytaroAPIKey    string `yaml:"keytaro_api_key"`
-	KeytaroURL       string `yaml:"keitaro_url"`
-	TelegramBotToken string `yaml:"telegram_bot_token"`
+	VirusTotalAPIKey         string `yaml:"virustotal_api_key"`
+	KeytaroAPIKey            string `yaml:"keytaro_api_key"`
+	KeytaroURL               string `yaml:"keitaro_url"`
+	TelegramBotToken         string `yaml:"telegram_bot_token"`
+	GoogleSafeBrowsingAPIKey string `yaml:"google_safebrowsing_api_key"`
 }
 
 func LoadConfig() (*Config, error) {
