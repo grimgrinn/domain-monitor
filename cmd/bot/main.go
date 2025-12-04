@@ -60,6 +60,7 @@ func handleCommand(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.
 				"/rawcheck <domain> - raw check domain\n"+
 				"/check <domain> - check domain\n"+
 				"/gsb <domain> - check domain with google safe browsing\n"+
+				"/gsbdetail <domain> - check domain with google safe browsing with details\n"+
 				"/list - list domains from Keitaro\n"+
 				"/group <name> - check by group\n"+
 				"/help - help")
@@ -76,6 +77,9 @@ func handleCommand(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.
 
 	case "gsb":
 		handleGoogleCheck(bot, message, cfg)
+
+	case "gsbdetail":
+		handleGSBDetail(bot, message, cfg)
 
 	case "list":
 		handleListDomains(bot, message, cfg)
@@ -239,7 +243,7 @@ func handleGoogleCheck(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *con
 	bot.Send(msg)
 
 	client := googlesafebrowsing.New(cfg.GoogleSafeBrowsingAPIKey)
-	isDangerous, threats, err := client.CheckDomain(domain)
+	report, err := client.GetFormattedReport(domain)
 
 	if err != nil {
 		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error: %v", err))
@@ -247,12 +251,47 @@ func handleGoogleCheck(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *con
 		return
 	}
 
-	if isDangerous {
-		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("%s is DANGEROUS\nThreats: %v", domain, threats))
-		bot.Send(msg)
-	} else {
-		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("%s is SAFE (Google Safe Browsing)", domain))
-		bot.Send(msg)
+	msg = tgbotapi.NewMessage(message.Chat.ID, report)
+	bot.Send(msg)
+
+	result, _ := client.CheckDomain(domain)
+	if result != nil && result.RawResponse != "" && result.RawResponse != "{}" {
+		rawMsg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Raw API answer: \n ```json\n%s\n```", result.RawResponse))
+		rawMsg.ParseMode = "Markdown"
+		bot.Send(rawMsg)
+	}
+}
+
+func handleGSBDetail(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.Config) {
+	domain := strings.TrimSpace(message.CommandArguments())
+	if domain == "" {
+		bot.Send(tgbotapi.NewMessage(message.Chat.ID, "Usage: /gsbdetail example.com"))
+		return
+	}
+
+	client := googlesafebrowsing.New(cfg.GoogleSafeBrowsingAPIKey)
+	detailed, err := client.GetDetailedResult(domain)
+
+	if err != nil {
+		bot.Send(tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error: %v", err)))
+		return
+	}
+
+	var response strings.Builder
+	response.WriteString(detailed.Formatted + "\n\n")
+	response.WriteString("Details: \n")
+	response.WriteString(fmt.Sprintf("Checked: %s\n", detailed.CheckedAt.Format("15:04:05 02.01.2025")))
+	response.WriteString(fmt.Sprintf("URL for check: %s\n", detailed.Result.CheckedURL))
+	response.WriteString(fmt.Sprintf("Status: %s\n", detailed.Result.Status))
+
+	if detailed.Result.IsDangerous {
+		response.WriteString(fmt.Sprintf("Menaces qunatity: %d\n", len(detailed.Result.Threats)))
+	}
+
+	if detailed.Result.RawResponse != "" {
+		rawMsg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Full API answer:\n ```json\n%s\n", detailed.Result.RawResponse))
+		rawMsg.ParseMode = "Markdown"
+		bot.Send(rawMsg)
 	}
 }
 
@@ -303,6 +342,7 @@ func sendHelp(bot *tgbotapi.BotAPI, chatID int64) {
 	/rawcheck google.com - rawcheck domain
 	/check google.com - check domain
 	/gsb example.com - check domain with google safe browsing
+	/gsbdetail example.com - check domain with google safe browsing with deteails
 	/list - list domains from Keitaro
 	/group killa - check domains by group
 	
