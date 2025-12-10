@@ -13,7 +13,7 @@ type Client struct {
 }
 
 type Domain struct {
-	ID      int    `json: "id"`
+	ID      int    `json:"id"`
 	Name    string `json:"name"`
 	Group   string `json:"group"`
 	State   string `json:"state"`

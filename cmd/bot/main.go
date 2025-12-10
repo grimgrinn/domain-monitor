@@ -6,6 +6,7 @@ import (
 	"domain-monitor/internal/googlesafebrowsing"
 	"domain-monitor/internal/keitaro"
 	"domain-monitor/internal/models"
+	"domain-monitor/internal/monitor"
 	"fmt"
 	"log"
 	"strings"
@@ -28,6 +29,9 @@ func main() {
 	bot.Debug = true
 	log.Printf("bot %s started", bot.Self.UserName)
 
+	kclient := keitaro.New(cfg.KeytaroAPIKey, cfg.KeytaroURL)
+	monitorSystem := monitor.NewMonitor(bot, cfg.VirusTotalAPIKey, kclient)
+
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
@@ -42,7 +46,7 @@ func main() {
 
 		switch {
 		case update.Message.IsCommand():
-			handleCommand(bot, update.Message, cfg)
+			handleCommand(bot, update.Message, cfg, monitorSystem)
 		case strings.HasPrefix(update.Message.Text, "check "):
 			handleChecKDomain(bot, update.Message, cfg)
 		default:
@@ -51,7 +55,7 @@ func main() {
 	}
 }
 
-func handleCommand(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.Config) {
+func handleCommand(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.Config, monitorSystem *monitor.Monitor) {
 	switch message.Command() {
 	case "start":
 		msg := tgbotapi.NewMessage(message.Chat.ID,
@@ -60,8 +64,8 @@ func handleCommand(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.
 				"/rawcheck <domain> - raw check domain\n"+
 				"/check <domain> - check domain\n"+
 				"/gsb <domain> - check domain with google safe browsing\n"+
-				"/gsbdetail <domain> - check domain with google safe browsing with details\n"+
 				"/list - list domains from Keitaro\n"+
+				"/monitor_start - start monitoring\n"+
 				"/group <name> - check by group\n"+
 				"/help - help")
 		bot.Send(msg)
@@ -86,6 +90,18 @@ func handleCommand(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.
 
 	case "group":
 		handleCheckGroup(bot, message, cfg)
+	case "monitor_start":
+		var msg tgbotapi.MessageConfig
+		if err := monitorSystem.Start(); err != nil {
+			msg = tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("error: %v", err))
+		} else {
+			msg = tgbotapi.NewMessage(message.Chat.ID,
+				"- Monitoring started!\n\n"+
+					"• Check every 30 minutes\n"+
+					"• Notifications about changes\n"+
+					"• Domains from Keitaro")
+		}
+		bot.Send(msg)
 
 	default:
 		msg := tgbotapi.NewMessage(message.Chat.ID, "command unknown")
@@ -342,9 +358,9 @@ func sendHelp(bot *tgbotapi.BotAPI, chatID int64) {
 	/rawcheck google.com - rawcheck domain
 	/check google.com - check domain
 	/gsb example.com - check domain with google safe browsing
-	/gsbdetail example.com - check domain with google safe browsing with deteails
 	/list - list domains from Keitaro
 	/group killa - check domains by group
+	/monitor_start - start monitoring
 	
 	`
 

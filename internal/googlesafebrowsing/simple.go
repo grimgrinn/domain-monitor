@@ -77,15 +77,15 @@ func (c *Client) Check(domain string) (bool, []string, error) {
 func (c *Client) makeRequest(url string) ([]byte, error) {
 	request := map[string]interface{}{
 		"client": map[string]interface{}{
-			"clientId":       "domain-monitor",
-			"clientVersioin": "1.0",
+			"clientId":      "domain-monitor",
+			"clientVersion": "1.0",
 		},
 		"threatInfo": map[string]interface{}{
 			"threatTypes": []string{
 				"MALWARE",
 				"SOCIAL_ENGINEERING",
 				"UNWANTED_SOFTWARE",
-				"POTENTIALLY_HARMFULL_APPLICATION",
+				"POTENTIALLY_HARMFUL_APPLICATION",
 			},
 			"platformTypes":    []string{"ANY_PLATFORM"},
 			"threatEntryTypes": []string{"URL"},
@@ -100,7 +100,17 @@ func (c *Client) makeRequest(url string) ([]byte, error) {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
+	// ДОБАВЬТЕ ДЕБАГ ВЫВОД ЗДЕСЬ:
+	fmt.Println("=== GSB REQUEST DEBUG ===")
+	fmt.Printf("URL для проверки: %s\n", url)
+	fmt.Printf("API ключ: %s...%s\n", c.apiKey[:10], c.apiKey[len(c.apiKey)-4:])
+	fmt.Printf("Запрос JSON:\n%s\n", string(jsonData))
+
 	apiURL := fmt.Sprintf("https://safebrowsing.googleapis.com/v4/threatMatches:find?key=%s", c.apiKey)
+	fmt.Printf("API URL: %s\n", apiURL)
+	fmt.Println("=========================")
+
+	// apiURL := fmt.Sprintf("https://safebrowsing.googleapis.com/v4/threatMatches:find?key=%s", c.apiKey)
 	resp, err := c.client.Post(apiURL, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("http request: %w", err)
