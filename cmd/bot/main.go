@@ -30,7 +30,8 @@ func main() {
 	log.Printf("bot %s started", bot.Self.UserName)
 
 	kclient := keitaro.New(cfg.KeytaroAPIKey, cfg.KeytaroURL)
-	monitorSystem := monitor.NewMonitor(bot, cfg.VirusTotalAPIKey, kclient)
+	//	monitorSystem := monitor.NewMonitor(bot, cfg.VirusTotalAPIKey, kclient)
+	simpleMonitor := monitor.NewSimpleMonitor(bot, cfg.VirusTotalAPIKey, kclient)
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
@@ -46,7 +47,7 @@ func main() {
 
 		switch {
 		case update.Message.IsCommand():
-			handleCommand(bot, update.Message, cfg, monitorSystem)
+			handleCommand(bot, update.Message, cfg /*monitorSystem*/, simpleMonitor)
 		case strings.HasPrefix(update.Message.Text, "check "):
 			handleChecKDomain(bot, update.Message, cfg)
 		default:
@@ -55,7 +56,7 @@ func main() {
 	}
 }
 
-func handleCommand(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.Config, monitorSystem *monitor.Monitor) {
+func handleCommand(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.Config /*monitorSystem *monitor.Monitor*/, simpleMonitor *monitor.SimpleMonitor) {
 	switch message.Command() {
 	case "start":
 		msg := tgbotapi.NewMessage(message.Chat.ID,
@@ -65,7 +66,8 @@ func handleCommand(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.
 				"/check <domain> - check domain\n"+
 				"/gsb <domain> - check domain with google safe browsing\n"+
 				"/list - list domains from Keitaro\n"+
-				"/monitor_start - start monitoring\n"+
+				//	"/monitor_start - start monitoring\n"+
+				"/simple_start - start simple monitoring\n"+
 				"/group <name> - check by group\n"+
 				"/help - help")
 		bot.Send(msg)
@@ -90,17 +92,22 @@ func handleCommand(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.
 
 	case "group":
 		handleCheckGroup(bot, message, cfg)
-	case "monitor_start":
-		var msg tgbotapi.MessageConfig
-		if err := monitorSystem.Start(); err != nil {
-			msg = tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("error: %v", err))
-		} else {
-			msg = tgbotapi.NewMessage(message.Chat.ID,
-				"- Monitoring started!\n\n"+
-					"• Check every 30 minutes\n"+
-					"• Notifications about changes\n"+
-					"• Domains from Keitaro")
-		}
+	// case "monitor_start":
+	// 	var msg tgbotapi.MessageConfig
+	// 	if err := monitorSystem.Start(); err != nil {
+	// 		msg = tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("error: %v", err))
+	// 	} else {
+	// 		msg = tgbotapi.NewMessage(message.Chat.ID,
+	// 			"- Monitoring started!\n\n"+
+	// 				"• Check every 30 minutes\n"+
+	// 				"• Notifications about changes\n"+
+	// 				"• Domains from Keitaro")
+	// 	}
+	// 	bot.Send(msg)
+
+	case "simple_start":
+		go simpleMonitor.Start()
+		msg := tgbotapi.NewMessage(message.Chat.ID, "simple monitor started!\nCHecking 3 domains...")
 		bot.Send(msg)
 
 	default:
@@ -361,6 +368,7 @@ func sendHelp(bot *tgbotapi.BotAPI, chatID int64) {
 	/list - list domains from Keitaro
 	/group killa - check domains by group
 	/monitor_start - start monitoring
+	/simple_start - start simple monitoring
 	
 	`
 

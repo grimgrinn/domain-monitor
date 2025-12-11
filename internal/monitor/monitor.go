@@ -99,6 +99,12 @@ func (m *Monitor) loadDomainsFromKeitaro() error {
 
 	m.domains = make([]DomainInfo, 0, len(domains))
 
+	maxTestDomains := 3
+	if len(domains) > maxTestDomains {
+		domains = domains[:maxTestDomains]
+		log.Printf("TEST MODE: Limited to %d domains", maxTestDomains)
+	}
+
 	for _, kd := range domains {
 		domainInfo := DomainInfo{
 			Name:     kd.Name,
@@ -116,31 +122,46 @@ func (m *Monitor) loadDomainsFromKeitaro() error {
 func (m *Monitor) checkDomain(domain string) {
 	log.Printf("checking domain: %s", domain)
 
-	vtResult, err := api.CheckDomain(domain, m.vtAPIKey)
-	if err != nil {
+	resultChan := make(chan *models.VTDetailReport, 1)
+	errChan := make(chan error, 1)
+
+	go func() {
+		vtResult, err := api.CheckDomain(domain, m.vtAPIKey)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		resultChan <- vtResult
+	}()
+
+	select {
+	case vtResult := <-resultChan:
+		result := CheckResult{
+			Timestamp: time.Now(),
+			Domain:    domain,
+			Stats:     *vtResult,
+			RiskLevel: calculateRiskLevel(vtResult),
+		}
+
+		m.mu.Lock()
+		m.history[domain] = append(m.history[domain], result)
+		m.lastCheck[domain] = time.Now()
+		m.mu.Unlock()
+
+		if changes := m.detectChanges(domain, result); len(changes) > 0 {
+			result.Changes = changes
+			m.notifyChanges(domain, result, changes)
+			m.lastChange[domain] = time.Now()
+		}
+
+		log.Printf("domain %s checked, risk: %s", domain, result.RiskLevel)
+
+	case err := <-errChan:
 		log.Printf("error checking %s: %v", domain, err)
-		return
+
+	case <-time.After(90 * time.Second):
+		log.Printf("TIMEOUT: domain %s check took too long, skipping", domain)
 	}
-
-	result := CheckResult{
-		Timestamp: time.Now(),
-		Domain:    domain,
-		Stats:     *vtResult,
-		RiskLevel: calculateRiskLevel(vtResult),
-	}
-
-	m.mu.Lock()
-	m.history[domain] = append(m.history[domain], result)
-	m.lastCheck[domain] = time.Now()
-	m.mu.Unlock()
-
-	if changes := m.detectChanges(domain, result); len(changes) > 0 {
-		result.Changes = changes
-		m.notifyChanges(domain, result, changes)
-		m.lastChange[domain] = time.Now()
-	}
-
-	log.Printf("domain %s checked. risk: %s", domain, result.RiskLevel)
 }
 
 func calculateRiskLevel(result *models.VTDetailReport) string {
@@ -226,12 +247,24 @@ func (m *Monitor) initialCheck() {
 
 	log.Printf("initial check of %d domains...", len(m.domains))
 
-	for _, domain := range m.domains {
+	for i, domain := range m.domains {
+		log.Printf("[%d/%d] checking: %s", i+1, len(m.domains), domain.Name)
 		m.checkDomain(domain.Name)
-		time.Sleep(2 * time.Second)
+
+		if i < len(m.domains)-1 {
+			time.Sleep(10 * time.Second)
+		}
 	}
 
 	log.Println("initial check complete")
+
+	if m.bot != nil {
+		msg := tgbotapi.NewMessage(131640406,
+			fmt.Sprintf("initial chekc completed!\n"+
+				"Checked: %d domains\n"+
+				"Next check in 30 minutes", len(m.domains)))
+		m.bot.Send(msg)
+	}
 }
 
 func (m *Monitor) runScheduler() {

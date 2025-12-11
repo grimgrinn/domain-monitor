@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"domain-monitor/internal/models"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -79,9 +81,16 @@ func CheckDomain(domain string, apiKey string) (*models.VTDetailReport, error) {
 
 	req.Header.Set("x-apikey", apiKey)
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("VirusTotal timeout after 60 seconds")
+		}
 		return nil, fmt.Errorf("connection error: %v", err)
 	}
 	defer resp.Body.Close()
