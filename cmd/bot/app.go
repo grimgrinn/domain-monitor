@@ -34,7 +34,9 @@ func NewApp(cfg *config.Config) (*App, error) {
 		return nil, err
 	}
 
-	smartMonitor := monitor.NewSmartMonitor(storage, cfg.VirusTotalAPIKey)
+	chatID := int64(131640406)
+
+	smartMonitor := monitor.NewSmartMonitor(storage, cfg.VirusTotalAPIKey, bot, chatID)
 
 	return &App{
 		Bot:     bot,

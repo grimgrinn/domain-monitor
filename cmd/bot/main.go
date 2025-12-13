@@ -65,6 +65,7 @@ func handleCommand(app *App, message *tgbotapi.Message) {
 				"/unwatch <domain> - remove from monitoring\n"+
 				"/list_watched - show watched domains\n"+
 				"/monitor_status - show monitor status\n"+
+				"/test_notify - test notification system\n"+
 				"/help - help")
 		app.Bot.Send(msg)
 
@@ -100,6 +101,9 @@ func handleCommand(app *App, message *tgbotapi.Message) {
 
 	case "monitor_status":
 		handleMonitorStatus(app, message)
+
+	case "test_notify":
+		handleTestNotifyCommand(app, message)
 
 	default:
 		msg := tgbotapi.NewMessage(message.Chat.ID, "command unknown")
@@ -390,6 +394,63 @@ func handleMonitorStatus(app *App, message *tgbotapi.Message) {
 			"Use /list_watched to see domains",
 			len(domains)))
 	app.Bot.Send(msg)
+}
+
+func handleTestNotifyCommand(app *App, message *tgbotapi.Message) {
+	testResult := &models.VTDetailReport{
+		Domain: "test.com",
+		Stats: struct {
+			Harmless   int `json:"harmless"`
+			Suspicious int `json:"suspicious"`
+			Malicious  int `json:"malicious"`
+			Undetected int `json:"undetected"`
+			Total      int `json:"total"`
+		}{
+			Malicious:  3,
+			Suspicious: 2,
+			Harmless:   68,
+		},
+		Results: struct {
+			Malicious  []string `json:"malicious"`
+			Suspicious []string `json:"suspicious"`
+			Harmless   []string `json:"harmless"`
+			Undetected []string `json:"undetected"`
+		}{
+			Malicious: []string{"SomeAntiVirus", "AnotherAV", "TestEngine", "Engine4", "Engine5", "Engine6"},
+		},
+	}
+
+	changes := []string{
+		"MALICIOIUS DETECTED! (3 engines)",
+		"Suspicious detected: 2 engiens",
+	}
+
+	msg := tgbotapi.NewMessage(message.Chat.ID,
+		"Test notification sent!\n\n"+
+			"Check your notifications - you should see a test message.")
+	app.Bot.Send(msg)
+
+	if app.Monitor != nil {
+		notificationText := fmt.Sprintf("Change detected: %s\n\n", testResult.Domain)
+
+		for _, change := range changes {
+			notificationText += fmt.Sprintf("- %s\n", change)
+		}
+
+		notificationText += fmt.Sprintf("\nCurrent stats:\n")
+		notificationText += fmt.Sprintf("Malicious: %d\n", testResult.Stats.Malicious)
+		notificationText += fmt.Sprintf("Suspicious: %d\n", testResult.Stats.Suspicious)
+		notificationText += fmt.Sprintf("Harmless: %d\n", testResult.Stats.Harmless)
+		notificationText += fmt.Sprintf("\nMalicious engines:\n")
+		for i, engine := range testResult.Results.Malicious {
+			if i < 5 {
+				notificationText += fmt.Sprintf("- %s\n", engine)
+			}
+		}
+
+		testMsg := tgbotapi.NewMessage(message.Chat.ID, notificationText)
+		app.Bot.Send(testMsg)
+	}
 }
 
 func formatDetailedVT(report *models.VTDetailReport) string {
