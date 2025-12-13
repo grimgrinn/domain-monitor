@@ -2,45 +2,57 @@ package storage
 
 import (
 	"database/sql"
-	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
-func InitDB() (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", "./monitor.db")
+type Storage struct {
+	db *sql.DB
+}
+
+func NewStorage(dbPath string) (*Storage, error) {
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, err
 	}
 
 	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS watched_domains (
-			id INTEGER PRIMARY KEY,
-			domain TEXT UNIQUE,
-			added_at DATETIME,
-			last_status TEXT DEFAULT 'unknown'
-		);
+        CREATE TABLE IF NOT EXISTS watched_domains (
+            domain TEXT PRIMARY KEY,
+            added_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        
+        CREATE TABLE IF NOT EXISTS domain_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            domain TEXT,
+            malicious INTEGER DEFAULT 0,
+            suspicious INTEGER DEFAULT 0,
+            checked_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+    `)
 
-		CREATE TABLE IF NOT EXISTS checks (
-			id INTEGER PRIMARY KEY,
-			domain TEXT,
-			malicious INTEGER,
-			checkec_at DATETIME
-		);
-	`)
+	if err != nil {
+		return nil, err
+	}
 
-	return db, err
+	return &Storage{db: db}, nil
 }
-func AddDomain(db *sql.DB, domain string) error {
-	_, err := db.Exec(
-		"INSERT OR IGNORE INTO watched_domains (domain, added_at) VALUES (?, ?)",
-		domain, time.Now(),
+
+func (s *Storage) AddDomain(domain string) error {
+	_, err := s.db.Exec(
+		"INSERT OR IGNORE INTO watched_domains (domain) VALUES (?)",
+		domain,
 	)
 	return err
 }
 
-func GetWatchedDomains(db *sql.DB) ([]string, error) {
-	rows, err := db.Query("SELECT domain FROM watched_domains")
+func (s *Storage) RemoveDomain(domain string) error {
+	_, err := s.db.Exec("DELETE FROM watched_domains WHERE domain = ?", domain)
+	return err
+}
+
+func (s *Storage) GetWatchedDomains() ([]string, error) {
+	rows, err := s.db.Query("SELECT domain FROM watched_domains ORDER BY added_at")
 	if err != nil {
 		return nil, err
 	}
@@ -49,9 +61,39 @@ func GetWatchedDomains(db *sql.DB) ([]string, error) {
 	var domains []string
 	for rows.Next() {
 		var domain string
-		rows.Scan(&domain)
+		if err := rows.Scan(&domain); err != nil {
+			return nil, err
+		}
 		domains = append(domains, domain)
 	}
 
 	return domains, nil
+}
+
+func (s *Storage) SaveCheckResult(domain string, malicious, suspicious int) error {
+	_, err := s.db.Exec(
+		"INSERT INTO domain_checks (domain, malicious, suspicious) VALUES (?, ?, ?)",
+		domain, malicious, suspicious,
+	)
+	return err
+}
+
+func (s *Storage) GetLastCheck(domain string) (malicious, suspicious int, err error) {
+	err = s.db.QueryRow(`
+		SELECT malicious, suspicious
+		FROM domain_checks
+		WHERE domain = ?
+		ORDER BY checked_at DESC
+		LIMIT 1
+	`, domain).Scan(&malicious, &suspicious)
+
+	if err == sql.ErrNoRows {
+		return 0, 0, nil
+	}
+
+	return malicious, suspicious, err
+}
+
+func (s *Storage) Close() error {
+	return s.db.Close()
 }

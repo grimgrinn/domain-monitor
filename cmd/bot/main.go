@@ -1,12 +1,8 @@
 package main
 
 import (
-	"domain-monitor/internal/api"
 	"domain-monitor/internal/config"
-	"domain-monitor/internal/googlesafebrowsing"
-	"domain-monitor/internal/keitaro"
 	"domain-monitor/internal/models"
-	"domain-monitor/internal/monitor"
 	"fmt"
 	"log"
 	"strings"
@@ -21,22 +17,20 @@ func main() {
 		log.Panic("config error:", err)
 	}
 
-	bot, err := tgbotapi.NewBotAPI(cfg.TelegramBotToken)
+	app, err := NewApp(cfg)
 	if err != nil {
-		log.Panic("bot creation error:", err)
+		log.Panic("app creation error:", err)
 	}
 
-	bot.Debug = true
-	log.Printf("bot %s started", bot.Self.UserName)
+	log.Printf("bot %s started", app.Bot.Self.UserName)
 
-	kclient := keitaro.New(cfg.KeytaroAPIKey, cfg.KeytaroURL)
-	//	monitorSystem := monitor.NewMonitor(bot, cfg.VirusTotalAPIKey, kclient)
-	simpleMonitor := monitor.NewSimpleMonitor(bot, cfg.VirusTotalAPIKey, kclient)
+	app.Monitor.Start() // start monitoring
+	defer app.Monitor.Stop()
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
-	updates := bot.GetUpdatesChan(u)
+	updates := app.Bot.GetUpdatesChan(u)
 
 	for update := range updates {
 		if update.Message == nil {
@@ -47,16 +41,16 @@ func main() {
 
 		switch {
 		case update.Message.IsCommand():
-			handleCommand(bot, update.Message, cfg /*monitorSystem*/, simpleMonitor)
+			handleCommand(app, update.Message)
 		case strings.HasPrefix(update.Message.Text, "check "):
-			handleChecKDomain(bot, update.Message, cfg)
+			handleCheckDomain(app, update.Message)
 		default:
-			sendHelp(bot, update.Message.Chat.ID)
+			sendHelp(app, update.Message.Chat.ID)
 		}
 	}
 }
 
-func handleCommand(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.Config /*monitorSystem *monitor.Monitor*/, simpleMonitor *monitor.SimpleMonitor) {
+func handleCommand(app *App, message *tgbotapi.Message) {
 	switch message.Command() {
 	case "start":
 		msg := tgbotapi.NewMessage(message.Chat.ID,
@@ -66,95 +60,91 @@ func handleCommand(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.
 				"/check <domain> - check domain\n"+
 				"/gsb <domain> - check domain with google safe browsing\n"+
 				"/list - list domains from Keitaro\n"+
-				//	"/monitor_start - start monitoring\n"+
-				"/simple_start - start simple monitoring\n"+
 				"/group <name> - check by group\n"+
+				"/watch <domain> - add domain to monitoring\n"+
+				"/unwatch <domain> - remove from monitoring\n"+
+				"/list_watched - show watched domains\n"+
+				"/monitor_status - show monitor status\n"+
 				"/help - help")
-		bot.Send(msg)
+		app.Bot.Send(msg)
 
 	case "help":
-		sendHelp(bot, message.Chat.ID)
+		sendHelp(app, message.Chat.ID)
 
 	case "rawcheck":
-		handleRawCheck(bot, message, cfg)
+		handleRawCheck(app, message)
 
 	case "check":
-		handleChecKDomain(bot, message, cfg)
+		handleCheckDomain(app, message)
 
 	case "gsb":
-		handleGoogleCheck(bot, message, cfg)
+		handleGoogleCheck(app, message)
 
 	case "gsbdetail":
-		handleGSBDetail(bot, message, cfg)
+		handleGSBDetail(app, message)
 
 	case "list":
-		handleListDomains(bot, message, cfg)
+		handleListDomains(app, message)
 
 	case "group":
-		handleCheckGroup(bot, message, cfg)
-	// case "monitor_start":
-	// 	var msg tgbotapi.MessageConfig
-	// 	if err := monitorSystem.Start(); err != nil {
-	// 		msg = tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("error: %v", err))
-	// 	} else {
-	// 		msg = tgbotapi.NewMessage(message.Chat.ID,
-	// 			"- Monitoring started!\n\n"+
-	// 				"• Check every 30 minutes\n"+
-	// 				"• Notifications about changes\n"+
-	// 				"• Domains from Keitaro")
-	// 	}
-	// 	bot.Send(msg)
+		handleCheckGroup(app, message)
 
-	case "simple_start":
-		go simpleMonitor.Start()
-		msg := tgbotapi.NewMessage(message.Chat.ID, "simple monitor started!\nCHecking 3 domains...")
-		bot.Send(msg)
+	case "watch":
+		handleWatch(app, message)
+
+	case "unwatch":
+		handleUnwatch(app, message)
+
+	case "list_watched":
+		handleListWatched(app, message)
+
+	case "monitor_status":
+		handleMonitorStatus(app, message)
 
 	default:
 		msg := tgbotapi.NewMessage(message.Chat.ID, "command unknown")
 
-		bot.Send(msg)
+		app.Bot.Send(msg)
 	}
 }
 
-func handleChecKDomain(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.Config) {
+func handleCheckDomain(app *App, message *tgbotapi.Message) {
 	domain := strings.TrimSpace(message.CommandArguments())
 	if domain == "" {
 		msg := tgbotapi.NewMessage(message.Chat.ID, "enter domain: /check example.com")
-		bot.Send(msg)
+		app.Bot.Send(msg)
 		return
 	}
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Process %s...", domain))
-	bot.Send(msg)
+	app.Bot.Send(msg)
 
-	result, err := api.CheckDomain(domain, cfg.VirusTotalAPIKey)
+	result, err := app.CheckDomain(domain)
 	if err != nil {
 		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf(" Error: %v", err))
-		bot.Send(msg)
+		app.Bot.Send(msg)
 		return
 	}
 
 	response := formatDetailedVT(result)
 	msg = tgbotapi.NewMessage(message.Chat.ID, response)
-	bot.Send(msg)
+	app.Bot.Send(msg)
 }
 
-func handleListDomains(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.Config) {
+func handleListDomains(app *App, message *tgbotapi.Message) {
 	msg := tgbotapi.NewMessage(message.Chat.ID, "receiving domain list...")
-	bot.Send(msg)
+	app.Bot.Send(msg)
 
-	kclient := keitaro.New(cfg.KeytaroAPIKey, cfg.KeytaroURL)
-	domains, err := kclient.GetActiveDomains()
+	domains, err := app.Keitaro.GetActiveDomains()
 	if err != nil {
 		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("error: %v", err))
-		bot.Send(msg)
+		app.Bot.Send(msg)
 		return
 	}
 
 	if len(domains) == 0 {
 		msg := tgbotapi.NewMessage(message.Chat.ID, "no active domains")
-		bot.Send(msg)
+		app.Bot.Send(msg)
 		return
 	}
 
@@ -175,24 +165,24 @@ func handleListDomains(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *con
 	}
 
 	msg = tgbotapi.NewMessage(message.Chat.ID, response.String())
-	bot.Send(msg)
+	app.Bot.Send(msg)
 }
 
-func handleRawCheck(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.Config) {
+func handleRawCheck(app *App, message *tgbotapi.Message) {
 	domain := strings.TrimSpace(message.CommandArguments())
 	if domain == "" {
 		msg := tgbotapi.NewMessage(message.Chat.ID, "Usage: /rawcheck example.com")
-		bot.Send(msg)
+		app.Bot.Send(msg)
 		return
 	}
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Getting raw data for %s...", domain))
-	bot.Send(msg)
+	app.Bot.Send(msg)
 
-	result, err := api.CheckDomainRaw(domain, cfg.VirusTotalAPIKey)
+	result, err := app.CheckDomainRaw(domain)
 	if err != nil {
 		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error: %v", err))
-		bot.Send(msg)
+		app.Bot.Send(msg)
 		return
 	}
 
@@ -205,48 +195,47 @@ func handleRawCheck(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config
 
 	msg = tgbotapi.NewMessage(message.Chat.ID, response)
 	msg.ParseMode = "Markdown"
-	bot.Send(msg)
+	app.Bot.Send(msg)
 }
 
-func handleCheckGroup(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.Config) {
+func handleCheckGroup(app *App, message *tgbotapi.Message) {
 	groupName := strings.TrimSpace(message.CommandArguments())
 	if groupName == "" {
 		msg := tgbotapi.NewMessage(message.Chat.ID, "enter group name: /group killa")
-		bot.Send(msg)
+		app.Bot.Send(msg)
 		return
 	}
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("checking group '%s' .... ", groupName))
-	bot.Send(msg)
+	app.Bot.Send(msg)
 
-	kclient := keitaro.New(cfg.KeytaroAPIKey, cfg.KeytaroURL)
-	domains, err := kclient.GetDomainsByGroup(groupName)
+	domains, err := app.Keitaro.GetDomainsByGroup(groupName)
 	if err != nil {
 		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf(" Error: %v", err))
-		bot.Send(msg)
+		app.Bot.Send(msg)
 		return
 	}
 
 	if len(domains) == 0 {
 		msg := tgbotapi.NewMessage(message.Chat.ID, "there is no domains in group")
-		bot.Send(msg)
+		app.Bot.Send(msg)
 		return
 	}
 
 	for i, domain := range domains {
 		progressMsg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("check %d/%d: %s", i+1, len(domains), domain.Name))
-		bot.Send(progressMsg)
+		app.Bot.Send(progressMsg)
 
-		result, err := api.CheckDomain(domain.Name, cfg.VirusTotalAPIKey)
+		result, err := app.CheckDomain(domain.Name)
 		if err != nil {
 			msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("error: %v", err))
-			bot.Send(msg)
+			app.Bot.Send(msg)
 			continue
 		}
 
 		response := formatDetailedVT(result)
 		msg = tgbotapi.NewMessage(message.Chat.ID, response)
-		bot.Send(msg)
+		app.Bot.Send(msg)
 
 		if i < len(domains)-1 {
 			time.Sleep(2 * time.Second)
@@ -254,49 +243,47 @@ func handleCheckGroup(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *conf
 	}
 }
 
-func handleGoogleCheck(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.Config) {
+func handleGoogleCheck(app *App, message *tgbotapi.Message) {
 	domain := strings.TrimSpace(message.CommandArguments())
 	if domain == "" {
 		msg := tgbotapi.NewMessage(message.Chat.ID, "Usage: /gsb example.com")
-		bot.Send(msg)
+		app.Bot.Send(msg)
 		return
 	}
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("checking %s via Google Safe Browsing...", domain))
-	bot.Send(msg)
+	app.Bot.Send(msg)
 
-	client := googlesafebrowsing.New(cfg.GoogleSafeBrowsingAPIKey)
-	report, err := client.GetFormattedReport(domain)
+	report, err := app.GSB.GetFormattedReport(domain)
 
 	if err != nil {
 		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error: %v", err))
-		bot.Send(msg)
+		app.Bot.Send(msg)
 		return
 	}
 
 	msg = tgbotapi.NewMessage(message.Chat.ID, report)
-	bot.Send(msg)
+	app.Bot.Send(msg)
 
-	result, _ := client.CheckDomain(domain)
+	result, _ := app.GSB.CheckDomain(domain)
 	if result != nil && result.RawResponse != "" && result.RawResponse != "{}" {
 		rawMsg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Raw API answer: \n ```json\n%s\n```", result.RawResponse))
 		rawMsg.ParseMode = "Markdown"
-		bot.Send(rawMsg)
+		app.Bot.Send(rawMsg)
 	}
 }
 
-func handleGSBDetail(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *config.Config) {
+func handleGSBDetail(app *App, message *tgbotapi.Message) {
 	domain := strings.TrimSpace(message.CommandArguments())
 	if domain == "" {
-		bot.Send(tgbotapi.NewMessage(message.Chat.ID, "Usage: /gsbdetail example.com"))
+		app.Bot.Send(tgbotapi.NewMessage(message.Chat.ID, "Usage: /gsbdetail example.com"))
 		return
 	}
 
-	client := googlesafebrowsing.New(cfg.GoogleSafeBrowsingAPIKey)
-	detailed, err := client.GetDetailedResult(domain)
+	detailed, err := app.GSB.GetDetailedResult(domain)
 
 	if err != nil {
-		bot.Send(tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error: %v", err)))
+		app.Bot.Send(tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error: %v", err)))
 		return
 	}
 
@@ -314,8 +301,95 @@ func handleGSBDetail(bot *tgbotapi.BotAPI, message *tgbotapi.Message, cfg *confi
 	if detailed.Result.RawResponse != "" {
 		rawMsg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Full API answer:\n ```json\n%s\n", detailed.Result.RawResponse))
 		rawMsg.ParseMode = "Markdown"
-		bot.Send(rawMsg)
+		app.Bot.Send(rawMsg)
 	}
+}
+
+func handleWatch(app *App, message *tgbotapi.Message) {
+	domain := strings.TrimSpace(message.CommandArguments())
+	if domain == "" {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Usage: /watch example.com")
+		app.Bot.Send(msg)
+		return
+	}
+
+	err := app.Storage.AddDomain(domain)
+	if err != nil {
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("error: %v", err))
+		app.Bot.Send(msg)
+		return
+	}
+
+	msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("add %s to monitoring\n\nWill check every 6 hours", domain))
+	app.Bot.Send(msg)
+}
+
+func handleListWatched(app *App, message *tgbotapi.Message) {
+	domains, err := app.Storage.GetWatchedDomains()
+	if err != nil {
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("error: %v", err))
+		app.Bot.Send(msg)
+		return
+	}
+
+	if len(domains) == 0 {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "no domians watched")
+		app.Bot.Send(msg)
+		return
+	}
+
+	if len(domains) == 0 {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "no domains watched")
+		app.Bot.Send(msg)
+		return
+	}
+
+	var response strings.Builder
+	response.WriteString(fmt.Sprintf("watched domains (%d):\n\n", len(domains)))
+
+	for i, domain := range domains {
+		response.WriteString(fmt.Sprintf("%d. %s\n", i+1, domain))
+	}
+
+	msg := tgbotapi.NewMessage(message.Chat.ID, response.String())
+	app.Bot.Send(msg)
+}
+
+func handleUnwatch(app *App, message *tgbotapi.Message) {
+	domain := strings.TrimSpace(message.CommandArguments())
+	if domain == "" {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Usage: /unwatch example.com")
+		app.Bot.Send(msg)
+		return
+	}
+
+	err := app.Storage.RemoveDomain(domain)
+	if err != nil {
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("error: %v", err))
+		app.Bot.Send(msg)
+		return
+	}
+
+	msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("removed %s from monitoring", domain))
+	app.Bot.Send(msg)
+}
+
+func handleMonitorStatus(app *App, message *tgbotapi.Message) {
+	domains, err := app.Storage.GetWatchedDomains()
+	if err != nil {
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("error: %v", err))
+		app.Bot.Send(msg)
+		return
+	}
+
+	msg := tgbotapi.NewMessage(message.Chat.ID,
+		fmt.Sprintf("Monitor Status\n\n"+
+			"- watching %d domains\n"+
+			"- checks every 6 hours (VT limits)\n"+
+			"- next check in ~5 milutes \n\n"+
+			"Use /list_watched to see domains",
+			len(domains)))
+	app.Bot.Send(msg)
 }
 
 func formatDetailedVT(report *models.VTDetailReport) string {
@@ -353,7 +427,7 @@ func formatDetailedVT(report *models.VTDetailReport) string {
 	return response.String()
 }
 
-func sendHelp(bot *tgbotapi.BotAPI, chatID int64) {
+func sendHelp(app *App, chatID int64) {
 	helpText := `Domain Monitor Bot
 	
 	
@@ -367,11 +441,9 @@ func sendHelp(bot *tgbotapi.BotAPI, chatID int64) {
 	/gsb example.com - check domain with google safe browsing
 	/list - list domains from Keitaro
 	/group killa - check domains by group
-	/monitor_start - start monitoring
-	/simple_start - start simple monitoring
 	
 	`
 
 	msg := tgbotapi.NewMessage(chatID, helpText)
-	bot.Send(msg)
+	app.Bot.Send(msg)
 }
