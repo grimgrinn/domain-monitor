@@ -8,6 +8,7 @@ import (
 	"domain-monitor/internal/models"
 	"domain-monitor/internal/monitor"
 	"domain-monitor/internal/storage"
+	"log"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -19,6 +20,18 @@ type App struct {
 	GSB     *googlesafebrowsing.Client
 	Storage *storage.Storage
 	Monitor *monitor.SmartMonitor
+}
+
+func (app *App) InitKeitaroDomains() error {
+	log.Println("loading keitaro domains...")
+	err := app.Storage.LoadKeitaroDomains(app.Keitaro)
+	if err != nil {
+		return err
+	}
+
+	domains, _ := app.Storage.GetKeitaroDomains()
+	log.Printf("loaded %d domains from keitaro", len(domains))
+	return nil
 }
 
 func NewApp(cfg *config.Config) (*App, error) {

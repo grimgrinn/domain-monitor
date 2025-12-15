@@ -24,6 +24,11 @@ func main() {
 
 	log.Printf("bot %s started", app.Bot.Self.UserName)
 
+	err = app.InitKeitaroDomains()
+	if err != nil {
+		log.Printf("could not load Keitaro domains: %v", err)
+	}
+
 	app.Monitor.Start() // start monitoring
 	defer app.Monitor.Stop()
 

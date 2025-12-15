@@ -2,6 +2,8 @@ package storage
 
 import (
 	"database/sql"
+	"domain-monitor/internal/keitaro"
+	"log"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -19,7 +21,10 @@ func NewStorage(dbPath string) (*Storage, error) {
 	_, err = db.Exec(`
         CREATE TABLE IF NOT EXISTS watched_domains (
             domain TEXT PRIMARY KEY,
-            added_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			last_status TEXT DEFAULT 'unknown',
+			source TEXT DEFAULT 'user',
+			is_keitaro BOOLEAN DEFAULT 0
         );
         
         CREATE TABLE IF NOT EXISTS domain_checks (
@@ -36,6 +41,55 @@ func NewStorage(dbPath string) (*Storage, error) {
 	}
 
 	return &Storage{db: db}, nil
+}
+
+func (s *Storage) GetKeitaroDomains() ([]string, error) {
+	rows, err := s.db.Query(
+		"SELECT domain FROM watched_domains WHERE source = 'keitaro' ORDER BY added_at",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var domains []string
+	for rows.Next() {
+		var domain string
+		if err := rows.Scan(&domain); err != nil {
+			return nil, err
+		}
+		domains = append(domains, domain)
+	}
+
+	return domains, nil
+}
+
+func (s *Storage) LoadKeitaroDomains(keitaroClient *keitaro.Client) error {
+	_, err := s.db.Exec("DELETE FROM watched_domains WHERE source = 'keitaro'")
+	if err != nil {
+		return err
+	}
+	domains, err := keitaroClient.GetActiveDomains()
+	if err != nil {
+		return err
+	}
+
+	if len(domains) > 250 {
+		domains = domains[:250]
+	}
+
+	for _, d := range domains {
+		_, err := s.db.Exec(`
+			INSERT INTO watched_domains (domain, source, is_keitaro)
+			VALUES (?, 'keitaro', 1)
+			`, d.Name)
+		if err != nil {
+			log.Printf("error saving domain %s: %v", d.Name, err)
+		}
+	}
+
+	log.Printf("Loaded %d domains from Keitaro", len(domains))
+	return nil
 }
 
 func (s *Storage) AddDomain(domain string) error {
