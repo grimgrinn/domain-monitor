@@ -70,41 +70,57 @@ func CheckDomainRaw(domain string, apiKey string) (*models.RawReport, error) {
 }
 
 func CheckDomain(domain string, apiKey string) (*models.VTDetailReport, error) {
-	fmt.Printf(" send req to vt...\b")
+	maxRetries := 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		fmt.Printf("send req to vt... (attempt %d/%d)\n", attempt, maxRetries)
 
-	url := fmt.Sprintf("http://www.virustotal.com/api/v3/domains/%s", domain)
+		url := fmt.Sprintf("http://www.virustotal.com/api/v3/domains/%s", domain)
 
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("request error: %v", err)
-	}
-
-	req.Header.Set("x-apikey", apiKey)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	req = req.WithContext(ctx)
-
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, fmt.Errorf("VirusTotal timeout after 60 seconds")
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("request error: %v", err)
 		}
-		return nil, fmt.Errorf("connection error: %v", err)
-	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("API error: %d", resp.StatusCode)
+		req.Header.Set("x-apikey", apiKey)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		req = req.WithContext(ctx)
+
+		client := &http.Client{Timeout: 60 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				return nil, fmt.Errorf("VirusTotal timeout after 60 seconds")
+			}
+			return nil, fmt.Errorf("connection error: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == 429 {
+			waitTime := time.Duration(attempt*30) * time.Second
+			fmt.Printf("rate limit (429) for %s, waiting %v (attempt %d)\n",
+				domain, waitTime, attempt)
+
+			io.ReadAll(resp.Body)
+
+			time.Sleep(waitTime)
+			continue
+		}
+
+		if resp.StatusCode != 200 {
+			return nil, fmt.Errorf("API error: %d", resp.StatusCode)
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("Request patsing error: %v", err)
+		}
+
+		return parseVTResponse(domain, body)
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("Request patsing error: %v", err)
-	}
-
-	return parseVTResponse(domain, body)
+	return nil, fmt.Errorf("max retries exceeded for domain %s", domain)
 }
 
 func parseVTResponse(domain string, body []byte) (*models.VTDetailReport, error) {

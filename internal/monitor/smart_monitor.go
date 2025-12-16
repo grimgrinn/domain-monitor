@@ -6,6 +6,7 @@ import (
 	"domain-monitor/internal/storage"
 	"fmt"
 	"log"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -96,9 +97,10 @@ func (m *SmartMonitor) checkDomains() {
 		}
 		m.checkDomain(domain)
 		checkedCount++
-
+		delay := 30*time.Second + time.Duration(rand.Intn(15))*time.Second
+		time.Sleep(delay)
 		if checkedCount < len(domains) {
-			time.Sleep(10 * time.Second)
+			time.Sleep(30 * time.Second)
 		}
 	}
 
