@@ -71,6 +71,8 @@ func handleCommand(app *App, message *tgbotapi.Message) {
 				"/list_watched - show watched domains\n"+
 				"/monitor_status - show monitor status\n"+
 				"/test_notify - test notification system\n"+
+				"/set_group - set group\n"+
+				"/my_groups - my groups\n"+
 				"/help - help")
 		app.Bot.Send(msg)
 
@@ -109,6 +111,15 @@ func handleCommand(app *App, message *tgbotapi.Message) {
 
 	case "test_notify":
 		handleTestNotifyCommand(app, message)
+
+	case "set_group":
+		handleSetGroup(app, message)
+
+	case "init_groups":
+		handleInitGroups(app, message)
+
+	case "my_groups":
+		handleMyGroups(app, message)
 
 	default:
 		msg := tgbotapi.NewMessage(message.Chat.ID, "command unknown")
@@ -456,6 +467,127 @@ func handleTestNotifyCommand(app *App, message *tgbotapi.Message) {
 		testMsg := tgbotapi.NewMessage(message.Chat.ID, notificationText)
 		app.Bot.Send(testMsg)
 	}
+}
+
+func handleSetGroup(app *App, message *tgbotapi.Message) {
+	if message.From.UserName != "grimgrinn" {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Only admin can set group")
+		app.Bot.Send(msg)
+		return
+	}
+
+	args := strings.TrimSpace(message.CommandArguments())
+	if args == "" {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Usage: /set_group username group1 group2\n Example: /set_group kbite kbite")
+		app.Bot.Send(msg)
+		return
+	}
+
+	parts := strings.SplitN(args, " ", 2)
+	if len(parts) != 2 {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Usage: /set_group username group1 group2\n Example: /set_group kbite kbite")
+		app.Bot.Send(msg)
+		return
+	}
+
+	username := strings.TrimSpace(parts[0])
+	groups := strings.TrimSpace(parts[1])
+
+	err := app.Storage.SaveUserGroup(username, groups)
+	if err != nil {
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error: %v", err))
+		app.Bot.Send(msg)
+		return
+	}
+
+	msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Saved mapping:\n@%s -> %s", username, groups))
+	app.Bot.Send(msg)
+}
+
+func handleInitGroups(app *App, message *tgbotapi.Message) {
+	if message.From.UserName != "grimgrinn" {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Only admin can init groups")
+		app.Bot.Send(msg)
+		return
+	}
+
+	mappings := map[string]string{
+		"admin":      "admin",
+		"kbite":      "kbite",
+		"dzb":        "dzb",
+		"dim":        "DIM",
+		"skv":        "SK",
+		"maxs":       "dmg",
+		"stack":      "kol",
+		"yol":        "Yol",
+		"asdzxc123":  "RS",
+		"akv":        "AKV",
+		"allin":      "DR",
+		"MaxP":       "MaxP",
+		"Kobe":       "Kobe",
+		"sapi":       "SAP",
+		"tochik":     "Alabau",
+		"TRUE":       "Real",
+		"vlad_brius": "ZVV",
+		"k1ra":       "k1ra,k1raADV",
+		"bolded":     "Boldeb",
+		"Slon":       "Slon",
+		"Alleasy":    "Alleasy",
+		"azn":        "Khal",
+		"winx":       "Solo",
+		"churchhell": "VV8",
+		"chain_borz": "Profit",
+		"hikaru":     "hikaru",
+		"mur":        "Lolka",
+		"santa":      "VV8",
+		"mi6":        "var",
+		"www95":      "www95",
+		"danunax":    "acc",
+		"minaev":     "Pinkaa",
+		"sokrat":     "sokrat",
+		"fendi":      "Fendi",
+		"vix":        "Lime",
+		"jink":       "Killa",
+	}
+
+	count := 0
+	for username, groups := range mappings {
+		err := app.Storage.SaveUserGroup(username, groups)
+		if err != nil {
+			log.Printf("error saving %s: %v", username, err)
+		} else {
+			count++
+		}
+	}
+
+	msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("initialized %d user groupos", count))
+	app.Bot.Send(msg)
+}
+
+func handleMyGroups(app *App, message *tgbotapi.Message) {
+	username := message.From.UserName
+	groups, err := app.Storage.GetUserGroups(username)
+	if err != nil {
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error: %v", err))
+		app.Bot.Send(msg)
+		return
+	}
+
+	if groups == nil {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "You don't have any groups assigned")
+		app.Bot.Send(msg)
+		return
+	}
+
+	var response string
+	if len(groups) == 0 {
+		response = "you have empty groups (won't reveive notifications)"
+	} else {
+		response = fmt.Sprintf("your groups: %s", strings.Join(groups, ","))
+	}
+
+	msg := tgbotapi.NewMessage(message.Chat.ID, response)
+	app.Bot.Send(msg)
 }
 
 func formatDetailedVT(report *models.VTDetailReport) string {

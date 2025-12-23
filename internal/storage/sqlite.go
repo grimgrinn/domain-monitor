@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"domain-monitor/internal/keitaro"
 	"log"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -34,6 +35,13 @@ func NewStorage(dbPath string) (*Storage, error) {
             suspicious INTEGER DEFAULT 0,
             checked_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+
+		CREATE TABLE IF NOT EXISTS user_groups (
+			telegram_username TEXT PRIMARY KEY,
+			keitaro_groups TEXT, 
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
     `)
 
 	if err != nil {
@@ -150,4 +158,62 @@ func (s *Storage) GetLastCheck(domain string) (malicious, suspicious int, err er
 
 func (s *Storage) Close() error {
 	return s.db.Close()
+}
+
+func (s *Storage) SaveUserGroup(username, groups string) error {
+	_, err := s.db.Exec(`
+		INSERT OR REPLACE INTO user_groups
+		(telegram_username, keitaro_groups, updated_at)
+		VALUES (?, ?, CURRENT_TIMESTAMP)
+	`, username, groups)
+	return err
+}
+
+func (s *Storage) GetUserGroups(username string) ([]string, error) {
+	var groupsStr string
+	err := s.db.QueryRow(
+		"SELECT keitaro_groups FROM user_groups WHERE telegram_username = ?",
+		username,
+	).Scan(&groupsStr)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var groups []string
+	for _, g := range strings.Split(groupsStr, ",") {
+		groups = append(groups, strings.TrimSpace(g))
+	}
+	return groups, nil
+}
+
+func (s *Storage) GetAllUserMappings() (map[string][]string, error) {
+	rows, err := s.db.Query(
+		"SELECT telegram_username, keitaro_groups FROM user_groups",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	mappings := make(map[string][]string)
+	for rows.Next() {
+		var username, groupsStr string
+		if err := rows.Scan(&username, &groupsStr); err != nil {
+			return nil, err
+		}
+
+		var groups []string
+		if groupsStr != "" {
+			for _, g := range strings.Split(groupsStr, ",") {
+				groups = append(groups, strings.TrimSpace(g))
+			}
+		}
+		mappings[username] = groups
+	}
+
+	return mappings, nil
 }
