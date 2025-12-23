@@ -176,7 +176,8 @@ func (m *SmartMonitor) checkForSignificantChanges(
 	}
 
 	if len(changes) > 0 {
-		m.sendNotification(domain, result, changes)
+		// m.sendNotification(domain, result, changes)
+		m.sendNotificationToGroup(domain, result, changes)
 	}
 }
 
@@ -221,5 +222,69 @@ func (m *SmartMonitor) sendNotification(
 		log.Printf("error sending notifications: %v", err)
 	} else {
 		log.Printf("Notification sent for %s", domain)
+	}
+}
+
+func (m *SmartMonitor) sendNotificationToGroup(domain string, result *models.VTDetailReport, changes []string) {
+	domainGroup, err := m.storage.GetDomainGroup(domain)
+	if err != nil {
+		log.Printf(" error getting domain group for %s: %v", domain, err)
+		return
+	}
+
+	if domainGroup == "" {
+		log.Printf("domain %s has no group, skipping notification", domain)
+		return
+	}
+
+	users, err := m.storage.GetUsersByGroup(domainGroup)
+	if err != nil {
+		log.Printf("error getting users for group %s: %v", domainGroup, err)
+		return
+	}
+
+	if len(users) == 0 {
+		log.Printf("no users found gor group %s (domain: %s)", domainGroup, domain)
+		return
+	}
+
+	log.Printf("Sending notifications for %s (group: %s) to %d users: %v", domain, domainGroup, len(users), users)
+
+	for _, username := range users {
+		m.sendNotificationToUser(username, domain, result, changes)
+	}
+}
+
+func (m *SmartMonitor) sendNotificationToUser(username, domain string, result *models.VTDetailReport, changes []string) {
+	var messageText string
+	if username != "admin" {
+		messageText += fmt.Sprintf("@%s\n", username)
+	}
+
+	messageText += fmt.Sprintf("Change detected: %s\n\n", domain)
+
+	for _, change := range changes {
+		messageText += fmt.Sprintf("- %s\n", change)
+	}
+
+	messageText += fmt.Sprintf("\n Current stats:\n")
+	messageText += fmt.Sprintf("Malicious: %d\n", result.Stats.Malicious)
+	messageText += fmt.Sprintf("Suspicious: %d\n", result.Stats.Suspicious)
+	messageText += fmt.Sprintf("Harmless: %d\n", result.Stats.Harmless)
+
+	if len(result.Results.Malicious) > 0 {
+		messageText += fmt.Sprintf("\nMalicious engines:\n")
+		for _, engine := range result.Results.Malicious {
+			messageText += fmt.Sprintf("- %s\n", engine)
+		}
+	}
+
+	msg := tgbotapi.NewMessage(m.chatID, messageText)
+	_, err := m.bot.Send(msg)
+
+	if err != nil {
+		log.Printf("error sending notificatoin to @%s: %v", username, err)
+	} else {
+		log.Printf("Notification sent to @%s for %s", username, domain)
 	}
 }

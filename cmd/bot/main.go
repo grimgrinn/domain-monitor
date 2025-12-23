@@ -115,14 +115,17 @@ func handleCommand(app *App, message *tgbotapi.Message) {
 	case "set_group":
 		handleSetGroup(app, message)
 
-	case "init_groups":
-		handleInitGroups(app, message)
-
 	case "my_groups":
 		handleMyGroups(app, message)
 
 	case "keitaro_load":
 		handleKeitaroLoad(app, message)
+
+	case "init_groups":
+		handleInitGroups(app, message)
+
+	case "test_groups":
+		handleTestGroups(app, message)
 
 	default:
 		msg := tgbotapi.NewMessage(message.Chat.ID, "command unknown")
@@ -607,6 +610,42 @@ func handleKeitaroLoad(app *App, message *tgbotapi.Message) {
 			strings.Join(domains[:min(5, len(domains))],
 				"\n")))
 	}
+	app.Bot.Send(msg)
+}
+
+func handleTestGroups(app *App, message *tgbotapi.Message) {
+	domain := strings.TrimSpace(message.CommandArguments())
+	if domain == "" {
+		domain = "indianews4129.com"
+	}
+
+	group, err := app.Storage.GetDomainGroup(domain)
+	if err != nil {
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("error getting group: %v", err))
+		app.Bot.Send(msg)
+		return
+	}
+
+	if group == "" {
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("domain %s has no group or not from keitaro", domain))
+		app.Bot.Send(msg)
+		return
+	}
+
+	users, err := app.Storage.GetUsersByGroup(group)
+	if err != nil {
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("error getting users: %v", err))
+		app.Bot.Send(msg)
+		return
+	}
+
+	msg := tgbotapi.NewMessage(message.Chat.ID,
+		fmt.Sprintf("Test gorups:\n"+
+			"Domain: %s\n"+
+			"Group: %s\n"+
+			"Users in group: %v\n"+
+			"Total: %d users",
+			domain, group, users, len(users)))
 	app.Bot.Send(msg)
 }
 

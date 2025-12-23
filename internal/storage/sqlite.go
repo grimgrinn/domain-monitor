@@ -256,3 +256,40 @@ func (s *Storage) GetAllUserMappings() (map[string][]string, error) {
 
 	return mappings, nil
 }
+
+func (s *Storage) GetDomainGroup(domain string) (string, error) {
+	var group string
+	err := s.db.QueryRow(`
+		SELECT keitaro_group FROM watched_domains
+		WHERE domain = ? AND source = 'keitaro'
+	`, domain).Scan(&group)
+
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return group, err
+}
+
+func (s *Storage) GetUsersByGroup(group string) ([]string, error) {
+	rows, err := s.db.Query(`
+		SELECT telegram_username
+		FROM user_groups
+		WHERE keitaro_groups LIKE '%' || ? || '%'
+			OR keitaro_groups = 'admin'
+	`, group)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []string
+	for rows.Next() {
+		var username string
+		if err := rows.Scan(&username); err != nil {
+			return nil, err
+		}
+		users = append(users, username)
+	}
+
+	return users, nil
+}
