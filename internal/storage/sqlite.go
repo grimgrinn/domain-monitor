@@ -48,7 +48,46 @@ func NewStorage(dbPath string) (*Storage, error) {
 		return nil, err
 	}
 
-	return &Storage{db: db}, nil
+	storage := &Storage{db: db}
+
+	//mirgration due to no erase existing data
+	if err := storage.migrateAddKeitarGroupColumn(); err != nil {
+
+		log.Printf("Miragration warning: %v", err)
+	}
+
+	return storage, nil
+}
+
+func (s *Storage) migrateAddKeitarGroupColumn() error {
+	var columnExists bool
+	err := s.db.QueryRow(`
+		SELECT COUNT(*) > 0
+		FROM pragma_table_info('watched_domains')
+		WHERE name = 'keitaro_group'
+	`).Scan(&columnExists)
+
+	if err != nil {
+		log.Printf("Warning chekcing column: %v", err)
+		return err
+	}
+
+	if !columnExists {
+		log.Println("Adding keitaro_group column to watched_domains...")
+		_, err := s.db.Exec(`
+			ALTER TABLE watched_domains
+			ADD COLUMN keitaro_group TEXT DEFAULT ''
+		`)
+		if err != nil {
+			log.Printf("Error adding column: %v", err)
+			return err
+		}
+		log.Println("keitaro_group column added")
+	} else {
+		log.Println("keitaro_group column already exists")
+	}
+
+	return nil
 }
 
 func (s *Storage) GetKeitaroDomains() ([]string, error) {
@@ -88,9 +127,9 @@ func (s *Storage) LoadKeitaroDomains(keitaroClient *keitaro.Client) error {
 
 	for _, d := range domains {
 		_, err := s.db.Exec(`
-			INSERT INTO watched_domains (domain, source, is_keitaro)
-			VALUES (?, 'keitaro', 1)
-			`, d.Name)
+			INSERT INTO watched_domains (domain, source, is_keitaro, keitaro_group)
+			VALUES (?, 'keitaro', 1, ?)
+			`, d.Name, d.Group)
 		if err != nil {
 			log.Printf("error saving domain %s: %v", d.Name, err)
 		}

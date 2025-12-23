@@ -121,6 +121,9 @@ func handleCommand(app *App, message *tgbotapi.Message) {
 	case "my_groups":
 		handleMyGroups(app, message)
 
+	case "keitaro_load":
+		handleKeitaroLoad(app, message)
+
 	default:
 		msg := tgbotapi.NewMessage(message.Chat.ID, "command unknown")
 
@@ -587,6 +590,23 @@ func handleMyGroups(app *App, message *tgbotapi.Message) {
 	}
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, response)
+	app.Bot.Send(msg)
+}
+
+func handleKeitaroLoad(app *App, message *tgbotapi.Message) {
+	msg := tgbotapi.NewMessage(message.Chat.ID, "Loading domains from Keitaro...")
+	app.Bot.Send(msg)
+
+	err := app.Storage.LoadKeitaroDomains(app.Keitaro)
+	if err != nil {
+		msg = tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Error: %v", err))
+	} else {
+		domains, _ := app.Storage.GetKeitaroDomains()
+		msg = tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Loaded %d domains from Keitaro\n\n Firts 5:\n%s",
+			len(domains),
+			strings.Join(domains[:min(5, len(domains))],
+				"\n")))
+	}
 	app.Bot.Send(msg)
 }
 
