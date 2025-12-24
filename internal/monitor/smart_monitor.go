@@ -46,6 +46,8 @@ func (m *SmartMonitor) Start() {
 	log.Println("Smart monitor started")
 
 	go m.run()
+
+	go m.scheduledDailyChecks()
 }
 
 func (m *SmartMonitor) Stop() {
@@ -287,4 +289,62 @@ func (m *SmartMonitor) sendNotificationToUser(username, domain string, result *m
 	} else {
 		log.Printf("Notification sent to @%s for %s", username, domain)
 	}
+}
+
+func (m *SmartMonitor) scheduledDailyChecks() {
+	go func() {
+		for {
+			now := time.Now()
+			loc := now.Location()
+
+			var nextCheck time.Time
+			morning := time.Date(now.Year(), now.Month(), now.Day(), 8, 0, 0, 0, loc)
+			evening := time.Date(now.Year(), now.Month(), now.Day(), 20, 0, 0, 0, loc)
+
+			if now.Before(morning) {
+				nextCheck = morning
+			} else if now.Before(evening) {
+				nextCheck = evening
+			} else {
+				tomorrow := now.Add(24 * time.Hour)
+				nextCheck = time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 8, 0, 0, 0, loc)
+			}
+
+			waitTime := time.Until(nextCheck)
+			log.Printf("Next scheduled Keitaro check: %s (in %v)", nextCheck.Format("15:04"), waitTime.Round(time.Minute))
+
+			time.Sleep(waitTime)
+
+			log.Println("Scheduled Keitaro check started")
+			m.checkKeitaroDomains()
+		}
+	}()
+}
+
+func (m *SmartMonitor) checkKeitaroDomains() {
+	domains, err := m.storage.GetKeitaroDomains()
+	if err != nil {
+		log.Printf("Error getting Keitaro domains: %v", err)
+		return
+	}
+
+	log.Printf("checking %d Keitaro domains (scheduled checks)...", len(domains))
+
+	checkedCount := 0
+	for i, domain := range domains {
+		if !m.shouldCheck(domain) {
+			log.Printf("%d/%d: %s (skepped, checked recentrly)", i+1, len(domains), domain)
+			continue
+		}
+
+		log.Printf("%d/%d: %s", i+1, len(domains), domain)
+		m.checkDomain(domain)
+		checkedCount++
+
+		if i < len(domains)-1 {
+			time.Sleep(30 * time.Second)
+		}
+	}
+
+	log.Printf("Scheduled check completed: %d/%d domains checked", checkedCount, len(domains))
 }

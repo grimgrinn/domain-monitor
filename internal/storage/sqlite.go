@@ -274,8 +274,8 @@ func (s *Storage) GetUsersByGroup(group string) ([]string, error) {
 	rows, err := s.db.Query(`
 		SELECT telegram_username
 		FROM user_groups
-		WHERE keitaro_groups LIKE '%' || ? || '%'
-			OR keitaro_groups = 'admin'
+		WHERE keitaro_groups = 'admin'
+			OR ',' || keitaro_groups || ',' LIKE '%,' || ? || ',%'
 	`, group)
 	if err != nil {
 		return nil, err

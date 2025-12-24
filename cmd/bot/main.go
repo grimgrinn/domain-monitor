@@ -127,6 +127,9 @@ func handleCommand(app *App, message *tgbotapi.Message) {
 	case "test_groups":
 		handleTestGroups(app, message)
 
+	case "keitaro_check_now":
+		handleKeitaroCheckNow(app, message)
+
 	default:
 		msg := tgbotapi.NewMessage(message.Chat.ID, "command unknown")
 
@@ -647,6 +650,17 @@ func handleTestGroups(app *App, message *tgbotapi.Message) {
 			"Total: %d users",
 			domain, group, users, len(users)))
 	app.Bot.Send(msg)
+}
+
+func handleKeitaroCheckNow(app *App, message *tgbotapi.Message) {
+	msg := tgbotapi.NewMessage(message.Chat.ID, "Starting Keitaro check...")
+	app.Bot.Send(msg)
+
+	go func() {
+		app.Monitor.CheckKeitaroDomains()
+		msg = tgbotapi.NewMessage(message.Chat.ID, "Keitaro check completed")
+		app.Bot.Send(msg)
+	}()
 }
 
 func formatDetailedVT(report *models.VTDetailReport) string {
